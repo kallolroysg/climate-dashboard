@@ -22,7 +22,8 @@ st.markdown("Adjust the policy levers on the left to simulate carbon reductions 
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if API_KEY:
     genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel('gemini-2.5-flash') # Using the updated model!
+    # Using the updated, active Gemini 2.5 Flash model
+    model = genai.GenerativeModel('gemini-2.5-flash') 
 else:
     st.error("AI API Key not found. Please add it to Streamlit Secrets.")
 
@@ -38,23 +39,38 @@ def load_data():
 
 taxes_df, subsidies_df = load_data()
 
-# --- 4. INTERACTIVE SIDEBAR LEVERS (The Upgrade) ---
+# --- 4. INTERACTIVE SIDEBAR LEVERS (Main Variables) ---
 st.sidebar.header("🎛️ Policy Levers")
 st.sidebar.markdown("Adjust targets to see the impact on 2030 emissions.")
 
-# Singapore realistic starting points
+# The "Main Variables" from your assignment table
 renewable_target = st.sidebar.slider("Renewable Energy Share (%)", min_value=5, max_value=50, value=5, step=1)
-ev_adoption = st.sidebar.slider("EV Adoption Rate (%)", min_value=10, max_value=100, value=15, step=5)
+ev_adoption = st.sidebar.slider("EV Transition Rate (%)", min_value=15, max_value=100, value=15, step=5)
 carbon_tax = st.sidebar.slider("Carbon Tax (S$/tonne)", min_value=25, max_value=150, value=45, step=5)
 
-# --- 5. DYNAMIC PREDICTION MATH ---
-# Base 2030 emissions without new policies is ~58 Mt
+st.sidebar.divider()
+
+# --- 5. SECONDARY VARIABLES (Under the hood math for the Professor) ---
+st.sidebar.subheader("⚙️ Secondary Variables")
+st.sidebar.markdown("How the model maps your assumptions:")
+
+# Calculate Secondary Variables based on your exact table logic
+fossil_fuel_share = 95.0 - (renewable_target - 5.0) - ((ev_adoption - 15.0) * 0.1)
+oil_share = 90.0 - (ev_adoption - 15.0)
+energy_intensity = 100.0 - ((carbon_tax - 45.0) * 0.3)
+
+# Display them in the sidebar
+st.sidebar.metric(label="fossil_fuel_share ↓", value=f"{fossil_fuel_share:.1f}%", delta=f"{fossil_fuel_share - 95.0:.1f}% from base", delta_color="inverse")
+st.sidebar.metric(label="oil_share ↓", value=f"{oil_share:.1f}%", delta=f"{oil_share - 90.0:.1f}% from base", delta_color="inverse")
+st.sidebar.metric(label="energy_intensity ↓", value=f"{energy_intensity:.1f} pts", delta=f"{energy_intensity - 100.0:.1f} pts from base", delta_color="inverse")
+
+# --- 6. DYNAMIC PREDICTION MATH ---
 base_2030 = 58.0 
 
-# Calculate reductions based on slider movements (Simple assumptions for the model)
-renewable_reduction = (renewable_target - 5) * 0.15  # Every 1% above base reduces 0.15 Mt
-ev_reduction = (ev_adoption - 15) * 0.08             # Every 1% above base reduces 0.08 Mt
-tax_reduction = (carbon_tax - 45) * 0.05             # Every $1 above base reduces 0.05 Mt
+# Calculate reductions based on slider movements
+renewable_reduction = (renewable_target - 5) * 0.15  
+ev_reduction = (ev_adoption - 15) * 0.08             
+tax_reduction = (carbon_tax - 45) * 0.05             
 
 total_reduction = renewable_reduction + ev_reduction + tax_reduction
 projected_2030 = base_2030 - total_reduction
@@ -62,20 +78,21 @@ projected_2030 = base_2030 - total_reduction
 # Generate the data points for the chart
 years = list(range(2024, 2031))
 baseline_curve = [54.0, 55.0, 56.0, 56.5, 57.0, 57.5, 58.0]
+
 # Calculate a smooth glide path to the new 2030 target
 scenario_curve = [54.0]
 for i in range(1, 7):
     scenario_curve.append(54.0 + (projected_2030 - 54.0) * (i / 6))
 
-# --- 6. TOP METRICS DASHBOARD ---
+# --- 7. TOP METRICS DASHBOARD ---
 col_m1, col_m2, col_m3 = st.columns(3)
 col_m1.metric(label="Projected 2030 Emissions", value=f"{projected_2030:.1f} Mt", delta=f"-{total_reduction:.1f} Mt vs Baseline", delta_color="inverse")
 col_m2.metric(label="Renewable Grid Target", value=f"{renewable_target}%", delta="Solar Expansion")
 col_m3.metric(label="Carbon Price", value=f"S${carbon_tax}", delta="Cost to Emitters", delta_color="off")
 st.write("") # Spacer
 
-# --- 7. MAIN LAYOUT (Chart & Policies) ---
-col1, col2 = st.columns([5, 3]) # Makes the chart wider than the policy text
+# --- 8. MAIN LAYOUT (Chart & Policies) ---
+col1, col2 = st.columns([5, 3]) 
 
 with col1:
     # Beautiful Plotly Chart
@@ -122,7 +139,7 @@ with col2:
                 st.write(f"**Details:** {row.get('Description', 'No description available.')}")
             st.session_state['policy_context'] += f"Country: {row.get('Country')}, Policy: {row.get('English name')}, Details: {row.get('Description')}\n\n"
 
-# --- 8. AI CHAT INTERFACE ---
+# --- 9. AI CHAT INTERFACE ---
 st.divider()
 st.subheader("💬 AI Policy Advisor")
 st.write(f"Ask the AI how to implement the policies above to reach your **{projected_2030:.1f} Mt** target.")
