@@ -8,7 +8,6 @@ st.set_page_config(page_title="SG Climate Simulator", page_icon="🇸🇬", layo
 
 st.markdown("""
 <style>
-    /* Compress the top padding so it fits on one screen */
     .block-container { padding-top: 1rem; padding-bottom: 1rem; }
     h1 { color: #0F172A; font-weight: 700; margin-bottom: 0rem; padding-bottom: 0rem;}
     .stMetric { background-color: #F8FAFC; padding: 10px; border-radius: 8px; border: 1px solid #E2E8F0; }
@@ -55,14 +54,17 @@ st.sidebar.metric(label="fossil_fuel_share ↓", value=f"{fossil_fuel_share:.1f}
 st.sidebar.metric(label="oil_share ↓", value=f"{oil_share:.1f}%", delta=f"{oil_share - 90.0:.1f}% base", delta_color="inverse")
 st.sidebar.metric(label="energy_intensity ↓", value=f"{energy_intensity:.1f} pts", delta=f"{energy_intensity - 100.0:.1f} pts base", delta_color="inverse")
 
-# --- 5. PREDICTION MATH ---
+# --- 5. PREDICTION MATH (Fixed Timeline) ---
 base_2030 = 58.0 
 total_reduction = ((renewable_target - 5) * 0.15) + ((ev_adoption - 15) * 0.08) + ((carbon_tax - 45) * 0.05)             
 projected_2030 = base_2030 - total_reduction
 
-years = list(range(2024, 2031))
-baseline_curve = [54.0, 55.0, 56.0, 56.5, 57.0, 57.5, 58.0]
-scenario_curve = [54.0]
+# Added back the historical years (2020-2023) so the forecast looks realistic
+years = list(range(2020, 2031))
+baseline_curve = [50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 56.5, 57.0, 57.5, 58.0]
+
+# Keep historical data the same, only change the forecast (2024 onwards)
+scenario_curve = [50.0, 51.0, 52.0, 53.0, 54.0]
 for i in range(1, 7):
     scenario_curve.append(54.0 + (projected_2030 - 54.0) * (i / 6))
 
@@ -74,28 +76,34 @@ col_m3.metric(label="Carbon Price", value=f"S${carbon_tax}", delta="Cost to Emit
 st.write("") 
 
 # --- 7. SINGLE SCREEN LAYOUT (Chart on Left, Tabs on Right) ---
-col1, col2 = st.columns([1.2, 1]) # Left column is slightly wider
+col1, col2 = st.columns([1.2, 1])
 
 with col1:
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=years, y=baseline_curve, mode='lines+markers', name='Business as Usual', line=dict(color='#94A3B8', dash='dash', width=3)))
+    
+    # We now have 11 years, so we need 11 text labels. The target shows up on the very last dot.
+    text_labels = [""] * 10 + [f"{projected_2030:.1f} Mt"]
+    
     fig.add_trace(go.Scatter(x=years, y=scenario_curve, mode='lines+markers+text', name='Policy Intervention', 
                              line=dict(color='#10B981', width=4),
-                             text=["", "", "", "", "", "", f"{projected_2030:.1f} Mt"], textposition="bottom center"))
+                             text=text_labels, textposition="bottom center"))
     
     fig.update_layout(
-        title="CO₂ Emissions Trajectory (2024 - 2030)",
+        title="CO₂ Emissions Trajectory (2020 - 2030)",
         xaxis_title="Year", 
         yaxis_title="Million Tonnes (Mt) CO₂",
         hovermode="x unified",
         margin=dict(l=0, r=0, t=40, b=0),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        height=450 # Fixed height to prevent stretching
+        height=450,
+        # THIS IS THE FIX FOR THE GRAPH MESSING UP:
+        # Forces the x-axis to display clean, whole years (e.g., 2024) instead of 2,024 or 2024.5
+        xaxis=dict(tickformat="d", dtick=1) 
     )
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    # Use tabs to save vertical space!
     tab1, tab2 = st.tabs(["📋 OECD Matches", "💬 AI Advisor"])
     
     with tab1:
@@ -123,7 +131,6 @@ with col2:
                 st.session_state['policy_context'] += f"Country: {row.get('Country')}, Policy: {row.get('English name')}, Details: {row.get('Description')}\n\n"
 
     with tab2:
-        # Create a scrollable container for chat so it doesn't push the page down
         chat_container = st.container(height=320)
         
         if "messages" not in st.session_state:
@@ -134,7 +141,6 @@ with col2:
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
 
-        # Chat input sits right below the chat container
         if prompt := st.chat_input("E.g., How can Singapore fund these EV subsidies?"):
             st.session_state.messages.append({"role": "user", "content": prompt})
             with chat_container:
