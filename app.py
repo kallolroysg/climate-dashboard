@@ -54,16 +54,16 @@ st.sidebar.metric(label="fossil_fuel_share ↓", value=f"{fossil_fuel_share:.1f}
 st.sidebar.metric(label="oil_share ↓", value=f"{oil_share:.1f}%", delta=f"{oil_share - 90.0:.1f}% base", delta_color="inverse")
 st.sidebar.metric(label="energy_intensity ↓", value=f"{energy_intensity:.1f} pts", delta=f"{energy_intensity - 100.0:.1f} pts base", delta_color="inverse")
 
-# --- 5. PREDICTION MATH (Fixed Timeline) ---
+# --- 5. PREDICTION MATH (The Fix is Here!) ---
 base_2030 = 58.0 
 total_reduction = ((renewable_target - 5) * 0.15) + ((ev_adoption - 15) * 0.08) + ((carbon_tax - 45) * 0.05)             
 projected_2030 = base_2030 - total_reduction
 
-# Added back the historical years (2020-2023) so the forecast looks realistic
-years = list(range(2020, 2031))
+# BULLETPROOF FIX: We turn the years into TEXT strings so Plotly can't mess with them
+years_text = [str(year) for year in range(2020, 2031)] 
+
 baseline_curve = [50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 56.5, 57.0, 57.5, 58.0]
 
-# Keep historical data the same, only change the forecast (2024 onwards)
 scenario_curve = [50.0, 51.0, 52.0, 53.0, 54.0]
 for i in range(1, 7):
     scenario_curve.append(54.0 + (projected_2030 - 54.0) * (i / 6))
@@ -80,12 +80,13 @@ col1, col2 = st.columns([1.2, 1])
 
 with col1:
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=years, y=baseline_curve, mode='lines+markers', name='Business as Usual', line=dict(color='#94A3B8', dash='dash', width=3)))
     
-    # We now have 11 years, so we need 11 text labels. The target shows up on the very last dot.
+    # Passing the TEXT years instead of numbers
+    fig.add_trace(go.Scatter(x=years_text, y=baseline_curve, mode='lines+markers', name='Business as Usual', line=dict(color='#94A3B8', dash='dash', width=3)))
+    
     text_labels = [""] * 10 + [f"{projected_2030:.1f} Mt"]
     
-    fig.add_trace(go.Scatter(x=years, y=scenario_curve, mode='lines+markers+text', name='Policy Intervention', 
+    fig.add_trace(go.Scatter(x=years_text, y=scenario_curve, mode='lines+markers+text', name='Policy Intervention', 
                              line=dict(color='#10B981', width=4),
                              text=text_labels, textposition="bottom center"))
     
@@ -97,9 +98,8 @@ with col1:
         margin=dict(l=0, r=0, t=40, b=0),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height=450,
-        # THIS IS THE FIX FOR THE GRAPH MESSING UP:
-        # Forces the x-axis to display clean, whole years (e.g., 2024) instead of 2,024 or 2024.5
-        xaxis=dict(tickformat="d", dtick=1) 
+        # Force the axis to treat it exactly like text categories
+        xaxis=dict(type='category') 
     )
     st.plotly_chart(fig, use_container_width=True)
 
