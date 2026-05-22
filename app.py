@@ -7,16 +7,22 @@ import os
 import json
 import re
 
-# --- PAGE SETUP & SESSION STATE ---
+# --- PAGE SETUP ---
 st.set_page_config(page_title="SG Climate ML Simulator", page_icon="🇸🇬", layout="wide")
+
+# --- STRICT SESSION STATE INITIALIZATION ---
+# We exclusively use bracket notation to prevent Streamlit AttributeError crashes
+if 'ren_val' not in st.session_state:
+    st.session_state['ren_val'] = 0
+if 'ev_val' not in st.session_state:
+    st.session_state['ev_val'] = 0
+if 'tax_val' not in st.session_state:
+    st.session_state['tax_val'] = 0
+if 'chat_history' not in st.session_state:
+    st.session_state['chat_history'] = []
+
 st.title("🇸🇬 Singapore CO₂ Machine Learning Simulator")
 st.markdown("Powered by Our World in Data, XGBoost, and Google Gemini.")
-
-# SAFEST WAY TO INITIALIZE STATE: Using bracket notation to prevent Streamlit AttributeErrors
-if 'ren_val' not in st.session_state: st.session_state['ren_val'] = 0
-if 'ev_val' not in st.session_state: st.session_state['ev_val'] = 0
-if 'tax_val' not in st.session_state: st.session_state['tax_val'] = 0
-if 'chat_history' not in st.session_state: st.session_state['chat_history'] = []
 
 # --- CONFIGURE AI ---
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
@@ -124,19 +130,17 @@ if ml_model is not None and full_data is not None:
         fig.update_layout(xaxis_title="Year", yaxis_title="CO₂ Emissions (Mt)", height=450, hovermode="x unified", xaxis=dict(type='category'))
         st.plotly_chart(fig, use_container_width=True)
 
-        # STEP 10: Present assumptions honestly as scenario simulations, not causal proof
         st.info("ℹ️ **Methodology Note:** These projections represent *scenario simulations* where input variables (e.g., oil CO₂) are adjusted prior to prediction. They do not constitute absolute causal proof, but illustrate expected trends based on historical ML patterns.")
 
     with tab2:
         st.subheader("Interactive AI Assistant")
         st.caption("Chat normally, or propose a policy! The AI acts ONLY as a classifier and will automatically adjust the dashboard sliders.")
         
-        # Display chat history
+        # Safely iterate through the chat history
         for msg in st.session_state['chat_history']:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
         
-        # Chat Input Box
         if user_input := st.chat_input("Ask a question, or say: 'Let's impose a high carbon tax.'"):
             
             st.session_state['chat_history'].append({"role": "user", "content": user_input})
@@ -147,7 +151,6 @@ if ml_model is not None and full_data is not None:
                 if not API_KEY:
                     st.error("API Key missing.")
                 else:
-                    # The Unbreakable Prompt
                     prompt = f"""
                     You are a helpful climate policy AI. You do NOT make up mathematical predictions. 
                     The user said: "{user_input}"
@@ -167,31 +170,28 @@ if ml_model is not None and full_data is not None:
                     
                     try:
                         response = model_ai.generate_content(prompt)
-                        
-                        # BULLETPROOF JSON EXTRACTION: Uses Regex to find the JSON block even if the AI messes up
                         text_response = response.text
+                        
+                        # Strict JSON Extraction
                         json_match = re.search(r'\{.*\}', text_response, re.DOTALL)
                         
                         if json_match:
                             parsed_data = json.loads(json_match.group(0))
                         else:
-                            # Fallback if no JSON is found
                             parsed_data = {"message": text_response, "scenario": "none", "intensity": "none"}
                         
                         ai_message = parsed_data.get("message", "I couldn't process that. Could you rephrase?")
                         scenario = parsed_data.get("scenario", "none").lower()
                         intensity = parsed_data.get("intensity", "none").lower()
                         
-                        # 1. Print the conversational answer
                         st.markdown(ai_message)
                         st.session_state['chat_history'].append({"role": "assistant", "content": ai_message})
                         
-                        # 2. If a policy was detected, move the sliders silently
+                        # Apply policy changes strictly
                         if scenario != "none" and scenario != "null":
                             val_50_scale = 10 if intensity == "low" else 25 if intensity == "medium" else 50
                             val_20_scale = 5 if intensity == "low" else 10 if intensity == "medium" else 20
                             
-                            # Safely updating session states
                             st.session_state['ren_val'] = 0
                             st.session_state['ev_val'] = 0
                             st.session_state['tax_val'] = 0
@@ -207,4 +207,4 @@ if ml_model is not None and full_data is not None:
                             st.rerun()
 
                     except Exception as e:
-                        st.error(f"Error parsing AI response: {e}")
+                        st.error("I couldn't understand that response. Please try again!")
