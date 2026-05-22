@@ -11,16 +11,17 @@ st.set_page_config(page_title="SG Climate ML Simulator", page_icon="🇸🇬", l
 st.title("🇸🇬 Singapore CO₂ Machine Learning Simulator")
 st.markdown("Powered by Our World in Data, XGBoost, and Google Gemini.")
 
-# We create "Session States" to let the AI control the sliders
+# Session States for Sliders and Chat History
 if 'ren_val' not in st.session_state: st.session_state.ren_val = 0
 if 'ev_val' not in st.session_state: st.session_state.ev_val = 0
 if 'tax_val' not in st.session_state: st.session_state.tax_val = 0
+if 'chat_history' not in st.session_state: st.session_state.chat_history = []
 
 # --- CONFIGURE AI ---
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if API_KEY:
     genai.configure(api_key=API_KEY)
-    model_ai = genai.GenerativeModel('gemini-3.5-flash') 
+    model_ai = genai.GenerativeModel('gemini-2.5-flash') 
 else:
     st.warning("⚠️ AI API Key not found in Streamlit Secrets. The AI Chatbot will be disabled.")
 
@@ -49,7 +50,6 @@ if ml_model is not None and full_data is not None:
     # --- SIDEBAR: POLICY SCENARIOS ---
     st.sidebar.header("🎛️ Policy Scenarios (Model Inputs)")
     
-    # Notice the "key" argument. This ties the slider to the AI's brain!
     renewable_intensity = st.sidebar.slider("Renewable Expansion (Reduce Fossil Fuel %)", 0, 50, key='ren_val', step=5)
     ev_intensity = st.sidebar.slider("EV Transition (Reduce Oil CO₂ %)", 0, 50, key='ev_val', step=5)
     carbon_tax_intensity = st.sidebar.slider("Carbon Tax (Improve Energy/GDP %)", 0, 20, key='tax_val', step=2)
@@ -105,7 +105,7 @@ if ml_model is not None and full_data is not None:
     st.write("---")
 
     # --- TABS LAYOUT ---
-    tab1, tab2 = st.tabs(["📈 ML Forecast vs Scenarios", "🤖 Smart AI Policy Engine"])
+    tab1, tab2 = st.tabs(["📈 ML Forecast vs Scenarios", "🤖 Smart AI Chat & Controller"])
 
     with tab1:
         st.subheader("Predictive ML Forecast (Historical + Future to 2035)")
@@ -123,57 +123,81 @@ if ml_model is not None and full_data is not None:
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-        st.subheader("Automated Dashboard Controller")
-        st.caption("Type a real-world policy idea. The AI will classify it and automatically adjust the sliders on the left to simulate the impact.")
+        st.subheader("Interactive AI Assistant")
+        st.caption("Ask questions or propose policies. If the AI detects a policy, it will automatically update the dashboard sliders!")
         
-        user_policy = st.text_area("Example: 'Let's ban all petrol cars by 2030 and invest heavily in solar panels.'")
+        # Display chat history
+        for msg in st.session_state.chat_history:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
         
-        if st.button("Simulate Policy Impact"):
-            if not API_KEY:
-                st.error("API Key missing.")
-            else:
-                # We ask the AI for the JSON code in the background
-                prompt = f"""
-                You are an internal data parser. 
-                Classify the user's policy into one or more of these scenarios: "Renewable energy", "EV transition", or "Carbon tax".
-                Determine the intensity: "low", "medium", or "high".
-                Output ONLY valid JSON format exactly like this example, nothing else:
-                {{
-                  "scenario": "EV transition",
-                  "intensity": "high"
-                }}
+        # Chat Input Box
+        if user_input := st.chat_input("Ask a question, or say: 'Let's impose a high carbon tax.'"):
+            
+            # Show user message immediately
+            st.session_state.chat_history.append({"role": "user", "content": user_input})
+            with st.chat_message("user"):
+                st.markdown(user_input)
                 
-                User Policy: {user_policy}
-                """
-                
-                try:
-                    response = model_ai.generate_content(prompt)
-                    # Clean up the AI's response to get pure JSON code
-                    clean_json = response.text.replace("```json","").replace("```","").strip()
-                    parsed_data = json.loads(clean_json)
+            with st.chat_message("assistant"):
+                if not API_KEY:
+                    st.error("API Key missing.")
+                else:
+                    # The "Dual Brain" Prompt
+                    prompt = f"""
+                    You are a helpful climate policy AI. 
+                    The user just said: "{user_input}"
                     
-                    scenario = parsed_data.get("scenario", "").lower()
-                    intensity = parsed_data.get("intensity", "low").lower()
+                    Task 1: Respond to them conversationally. Answer their question nicely, no matter how simple or unrelated it is.
+                    Task 2: IF they proposed a climate policy, classify it into: "Renewable energy", "EV transition", or "Carbon tax". If they didn't, classify it as "none".
+                    Task 3: IF they proposed a policy, determine intensity: "low", "medium", or "high". If they didn't, output "none".
                     
-                    # Convert the AI's "intensity" word into numbers for our sliders
-                    val_50_scale = 10 if intensity == "low" else 25 if intensity == "medium" else 50
-                    val_20_scale = 5 if intensity == "low" else 10 if intensity == "medium" else 20
+                    You MUST output ONLY a valid JSON object exactly like this format. Do NOT add any extra text outside the JSON block.
+                    {{
+                      "message": "Your conversational response here...",
+                      "scenario": "none or the scenario",
+                      "intensity": "none or the intensity"
+                    }}
+                    """
                     
-                    # Reset sliders to 0 first
-                    st.session_state.ren_val = 0
-                    st.session_state.ev_val = 0
-                    st.session_state.tax_val = 0
-                    
-                    # Automatically move the sliders based on what the AI decided
-                    if "ev" in scenario or "petrol" in scenario:
-                        st.session_state.ev_val = val_50_scale
-                    if "renewable" in scenario or "solar" in scenario:
-                        st.session_state.ren_val = val_50_scale
-                    if "tax" in scenario or "carbon" in scenario:
-                        st.session_state.tax_val = val_20_scale
-                    
-                    # Tell Streamlit to refresh the page to show the new chart!
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"Failed to process policy. Please try phrasing it differently.")
+                    try:
+                        # Call the AI
+                        response = model_ai.generate_content(prompt)
+                        
+                        # Clean and parse the dual-brain JSON
+                        clean_json = response.text.replace("```json","").replace("```","").strip()
+                        parsed_data = json.loads(clean_json)
+                        
+                        ai_message = parsed_data.get("message", "I am not sure how to respond to that!")
+                        scenario = parsed_data.get("scenario", "none").lower()
+                        intensity = parsed_data.get("intensity", "none").lower()
+                        
+                        # 1. Print the conversational answer to the screen
+                        st.markdown(ai_message)
+                        st.session_state.chat_history.append({"role": "assistant", "content": ai_message})
+                        
+                        # 2. If a policy was detected, move the sliders silently
+                        if scenario != "none":
+                            val_50_scale = 10 if intensity == "low" else 25 if intensity == "medium" else 50
+                            val_20_scale = 5 if intensity == "low" else 10 if intensity == "medium" else 20
+                            
+                            st.session_state.ren_val = 0
+                            st.session_state.ev_val = 0
+                            st.session_state.tax_val = 0
+                            
+                            if "ev" in scenario or "petrol" in scenario:
+                                st.session_state.ev_val = val_50_scale
+                            if "renewable" in scenario or "solar" in scenario:
+                                st.session_state.ren_val = val_50_scale
+                            if "tax" in scenario or "carbon" in scenario:
+                                st.session_state.tax_val = val_20_scale
+                            
+                            # Tell the user we adjusted the dashboard
+                            st.info("🔄 Dashboard sliders automatically updated based on your policy proposal!")
+                            
+                            # Refresh to instantly show the new chart
+                            st.rerun()
+
+                    except Exception as e:
+                        # Safe fallback if the AI bugs out
+                        st.error("I'm sorry, I couldn't process that right now. Try rephrasing!")
