@@ -63,12 +63,12 @@ if ml_model is not None and full_data is not None:
 
     st.sidebar.divider()
     
-    # --- NEW: A+ TRANSPARENCY FEATURES ---
+    # --- A+ TRANSPARENCY FEATURES ---
     st.sidebar.subheader("📊 Model & Data Transparency")
     st.sidebar.caption("✅ Source: Our World in Data (World Bank & GCP)")
     st.sidebar.caption("✅ Model: XGBoost Regressor")
     
-    # 1. Feature Importance Chart (Explainability)
+    # 1. Feature Importance Chart
     with st.sidebar.expander("🧠 Model Explainability (Feature Weights)"):
         st.caption("This chart shows which variables the XGBoost algorithm found most mathematically impactful for predicting Singapore's CO₂ emissions.")
         if hasattr(ml_model, 'feature_importances_'):
@@ -79,10 +79,10 @@ if ml_model is not None and full_data is not None:
             fig_imp.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=250, xaxis_title="Impact (%)", font=dict(size=10))
             st.plotly_chart(fig_imp, use_container_width=True)
 
-    # 2. Raw Data Viewer (No Hallucinations)
+    # 2. Raw Data Viewer (FIXED: Removed duplicate 'year' column)
     with st.sidebar.expander("🔍 View Training Dataset"):
         st.caption("Raw historical data for Singapore, cleaned and utilized for ML training.")
-        st.dataframe(full_data[['year', 'co2'] + features_list].tail(20), height=200)
+        st.dataframe(full_data[['co2'] + features_list].tail(20), height=200)
 
     # --- ML PREDICTION ENGINE ---
     hist_data = full_data.tail(10)
@@ -183,7 +183,7 @@ if ml_model is not None and full_data is not None:
                         
                         Task 1: If it's a general/dumb question (e.g., "Hello", "What is 2+2?"), answer it simply and conversationally in the "message" field.
                         Task 2: If they propose a policy, write a short conversational response in the "message" field. 
-                        - FIRST, provide 1-2 bullet points on how this could be implemented LOCALLY in Singapore (e.g., referencing COE quotas, HDB solar panels, LTA, or the current SG Carbon Tax). 
+                        - FIRST, provide 1-2 bullet points on how this could be implemented LOCALLY in Singapore. 
                         - THEN, provide 1-2 bullet points of successful OVERSEAS examples.
                         - FINALLY, state clearly at the end: "I am updating the dashboard parameters..."
                         Task 3: Classify the policy into: "renewable", "ev", or "tax". If not a policy, output "none".
@@ -191,7 +191,7 @@ if ml_model is not None and full_data is not None:
                         
                         CRITICAL INSTRUCTION: You MUST output ONLY a valid JSON object.
                         {{
-                          "message": "Your conversational response here (with SG context first, then overseas)...",
+                          "message": "Your conversational response here...",
                           "scenario": "none",
                           "intensity": "none"
                         }}
