@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import google.generativeai as genai
 import joblib
+import os
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="SG Climate ML Simulator", page_icon="🇸🇬", layout="wide")
@@ -15,22 +16,51 @@ if API_KEY:
     genai.configure(api_key=API_KEY)
     model_ai = genai.GenerativeModel('gemini-2.5-flash') 
 else:
-    st.warning("AI API Key not found.")
+    st.warning("⚠️ AI API Key not found in Streamlit Secrets. The AI Chatbot will be disabled.")
 
-# --- LOAD ML MODEL & DATA ---
+# --- BULLETPROOF DATA LOADING ---
 @st.cache_resource
 def load_ml_assets():
+    model_file = 'best_co2_model.joblib'
+    data_file = 'cleaned_sg_co2_data.csv'
+    
+    if not os.path.exists(model_file) or not os.path.exists(data_file):
+        st.error(f"⚠️ Missing ML files! Please ensure '{model_file}' and '{data_file}' are uploaded to GitHub.")
+        return None, None
+        
     try:
-        model = joblib.load('best_co2_model.joblib')
-        # STRICT FIX: Using the exact file name you downloaded from Colab!
-        full_data = pd.read_csv('cleaned_sg_co2_data.csv')
+        model = joblib.load(model_file)
+        full_data = pd.read_csv(data_file)
         return model, full_data
     except Exception as e:
-        st.error(f"⚠️ Error loading files: {e}. Please ensure 'best_co2_model.joblib' and 'cleaned_sg_co2_data.csv' are uploaded to GitHub.")
+        st.error(f"⚠️ Error reading ML files: {e}")
         return None, None
 
-ml_model, full_data = load_ml_assets()
+@st.cache_data
+def load_oecd_data():
+    taxes_file = 'IFCMA_ClimatePolicyDashboard_Data_April 2026.xlsx - Taxes.csv'
+    subs_file = 'IFCMA_ClimatePolicyDashboard_Data_April 2026.xlsx - Subsidies.csv'
+    
+    taxes_df = pd.DataFrame()
+    subs_df = pd.DataFrame()
+    
+    if os.path.exists(taxes_file):
+        taxes_df = pd.read_csv(taxes_file, skiprows=1)
+    else:
+        st.warning(f"⚠️ Missing policy file: '{taxes_file}'. Policy recommendations are disabled.")
+        
+    if os.path.exists(subs_file):
+        subs_df = pd.read_csv(subs_file, skiprows=1)
+    else:
+        st.warning(f"⚠️ Missing policy file: '{subs_file}'. Policy recommendations are disabled.")
+        
+    return taxes_df, subs_df
 
+# Load everything safely
+ml_model, full_data = load_ml_assets()
+taxes_df, subsidies_df = load_oecd_data()
+
+# --- MAIN DASHBOARD (Only runs if ML loads successfully) ---
 if ml_model is not None and full_data is not None:
     
     # --- SIDEBAR: POLICY SCENARIOS ---
@@ -47,32 +77,29 @@ if ml_model is not None and full_data is not None:
     st.sidebar.caption("✅ Model: XGBoost Regressor")
     st.sidebar.caption(f"✅ Training Records: {len(full_data)}")
 
-    # --- ML PREDICTION ENGINE (PROMPTS 4 & 5) ---
+    # --- ML PREDICTION ENGINE ---
     features_list = ['year', 'population', 'gdp', 'primary_energy_consumption', 'energy_per_gdp', 'energy_per_capita', 'coal_co2', 'oil_co2', 'gas_co2', 'fossil_fuel_co2']
     
-    # Get historical data for the chart (last 10 years available)
     hist_data = full_data.tail(10)
     hist_years = hist_data['year'].tolist()
     hist_co2 = hist_data['co2'].tolist()
     
-    # Grab the most recent year's data to use as the baseline for the future
     latest_features = full_data.tail(1).iloc[0]
     latest_year = int(latest_features['year'])
     
-    # Forecast from the latest data point out to 2035
     future_years = list(range(latest_year + 1, 2036))
     baseline_preds = []
     policy_preds = []
 
     for year in future_years:
-        # 1. Baseline Row (No policy changes, just updating the year)
+        # Baseline Row
         base_row = latest_features.copy()
         base_row['year'] = year
         base_df = pd.DataFrame([base_row])[features_list]
         b_pred = ml_model.predict(base_df)[0]
         baseline_preds.append(b_pred)
 
-        # 2. Policy-Adjusted Row (Applying the exact logic from Prompt 5)
+        # Policy-Adjusted Row
         pol_row = base_row.copy()
         pol_row['oil_co2'] = pol_row['oil_co2'] * (1 - (ev_intensity/100))
         pol_row['fossil_fuel_co2'] = pol_row['fossil_fuel_co2'] * (1 - (renewable_intensity/100))
@@ -83,7 +110,6 @@ if ml_model is not None and full_data is not None:
         policy_preds.append(p_pred)
 
     # --- DASHBOARD METRICS ---
-    # Find the index for 2030 to display in the top metrics
     idx_2030 = future_years.index(2030) if 2030 in future_years else -1
     pred_2030_base = baseline_preds[idx_2030]
     pred_2030_policy = policy_preds[idx_2030]
@@ -104,23 +130,28 @@ if ml_model is not None and full_data is not None:
         st.subheader("Predictive ML Forecast (Historical + Future to 2035)")
         
         fig = go.Figure()
-        # Historical Line
         fig.add_trace(go.Scatter(x=hist_years, y=hist_co2, mode='lines+markers', name='Historical Data', line=dict(color='black', width=2)))
         
-        # Connect history to forecast smoothly
         connect_year = [hist_years[-1], future_years[0]]
         connect_base_co2 = [hist_co2[-1], baseline_preds[0]]
         connect_pol_co2 = [hist_co2[-1], policy_preds[0]]
 
-        # Baseline Forecast Line
         fig.add_trace(go.Scatter(x=connect_year + future_years[1:], y=connect_base_co2 + baseline_preds[1:], mode='lines', name='Baseline Forecast', line=dict(color='gray', dash='dash')))
-        
-        # Policy Forecast Line
         fig.add_trace(go.Scatter(x=connect_year + future_years[1:], y=connect_pol_co2 + policy_preds[1:], mode='lines', name='Policy Intervention', line=dict(color='green', width=3)))
         
-        # Format the X-axis to display whole years as text to prevent decimal errors
         fig.update_layout(xaxis_title="Year", yaxis_title="CO₂ Emissions (Mt)", height=450, hovermode="x unified", xaxis=dict(type='category'))
         st.plotly_chart(fig, use_container_width=True)
+
+        # Show Policy matches if data exists
+        if not taxes_df.empty or not subsidies_df.empty:
+            st.write("---")
+            st.write("📋 **Dynamic OECD Recommendations:**")
+            if ev_intensity > 0 and not subsidies_df.empty:
+                st.info("EV Transition active. Matching OECD Policies:")
+                st.dataframe(subsidies_df[subsidies_df['Approach'].astype(str).str.contains("Vehicle", case=False, na=False)][['Country', 'English name']].head(3))
+            if carbon_tax_intensity > 0 and not taxes_df.empty:
+                st.info("Carbon Tax active. Matching OECD Policies:")
+                st.dataframe(taxes_df[taxes_df['Approach'].astype(str).str.contains("Carbon", case=False, na=False)][['Country', 'English name']].head(3))
 
     with tab2:
         st.subheader("Strict Policy Classifier (Prompt 6)")
