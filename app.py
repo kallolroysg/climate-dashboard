@@ -10,7 +10,6 @@ import re
 # --- PAGE SETUP & SESSION STATE ---
 st.set_page_config(page_title="SG Climate ML Simulator", page_icon="🇸🇬", layout="wide")
 
-# 1. Safe Initialization 
 if 'ren_val' not in st.session_state: st.session_state['ren_val'] = 0
 if 'ev_val' not in st.session_state: st.session_state['ev_val'] = 0
 if 'tax_val' not in st.session_state: st.session_state['tax_val'] = 0
@@ -51,13 +50,10 @@ if ml_model is not None and full_data is not None:
     
     st.sidebar.header("🎛️ Policy Scenarios (Model Inputs)")
     
-    # 2. THE FIX: Removed rigid 'key' bindings. Now using dynamic 'value' bindings.
-    # This prevents the "widget cannot be modified after instantiation" crash completely.
     renewable_intensity = st.sidebar.slider("Renewable Expansion (Reduce Fossil Fuel %)", 0, 50, value=st.session_state['ren_val'], step=5)
     ev_intensity = st.sidebar.slider("EV Transition (Reduce Oil CO₂ %)", 0, 50, value=st.session_state['ev_val'], step=5)
     carbon_tax_intensity = st.sidebar.slider("Carbon Tax (Improve Energy/GDP %)", 0, 20, value=st.session_state['tax_val'], step=2)
 
-    # Manual updates sync to session state silently
     st.session_state['ren_val'] = renewable_intensity
     st.session_state['ev_val'] = ev_intensity
     st.session_state['tax_val'] = carbon_tax_intensity
@@ -150,7 +146,6 @@ if ml_model is not None and full_data is not None:
                 if not API_KEY:
                     st.error("API Key missing.")
                 else:
-                    # 3. THE FIX: Ruthless JSON Prompt
                     prompt = f"""
                     You are a helpful climate policy AI. You do NOT make up mathematical predictions. 
                     The user said: "{user_input}"
@@ -160,7 +155,7 @@ if ml_model is not None and full_data is not None:
                     Task 3: Classify the policy into: "renewable", "ev", or "tax". If not a policy, output "none".
                     Task 4: Determine intensity: "low", "medium", or "high". If not a policy, output "none".
                     
-                    CRITICAL INSTRUCTION: You MUST output ONLY a valid JSON object. Do not include markdown formatting like ```json. Do not include any text before or after the JSON.
+                    CRITICAL INSTRUCTION: You MUST output ONLY a valid JSON object.
                     {{
                       "message": "Your conversational response here...",
                       "scenario": "none",
@@ -170,14 +165,39 @@ if ml_model is not None and full_data is not None:
                     
                     try:
                         response = model_ai.generate_content(prompt)
-                        text_response = response.text.strip()
+                        text_response = response.text
                         
-                        # Strip away any accidental markdown formatting the AI might add
-                        if text_response.startswith("
-http://googleusercontent.com/immersive_entry_chip/0
-http://googleusercontent.com/immersive_entry_chip/1
-http://googleusercontent.com/immersive_entry_chip/2
+                        # Clean Regex extraction - completely bypasses the SyntaxError issue
+                        json_match = re.search(r'\{.*\}', text_response, re.DOTALL)
+                        if json_match:
+                            parsed_data = json.loads(json_match.group(0))
+                        else:
+                            parsed_data = {"message": text_response, "scenario": "none", "intensity": "none"}
+                        
+                        ai_message = parsed_data.get("message", "I couldn't process that. Could you rephrase?")
+                        scenario = parsed_data.get("scenario", "none").lower()
+                        intensity = parsed_data.get("intensity", "none").lower()
+                        
+                        st.markdown(ai_message)
+                        st.session_state['chat_history'].append({"role": "assistant", "content": ai_message})
+                        
+                        if scenario != "none" and scenario != "null":
+                            val_50_scale = 10 if intensity == "low" else 25 if intensity == "medium" else 50
+                            val_20_scale = 5 if intensity == "low" else 10 if intensity == "medium" else 20
+                            
+                            st.session_state['ren_val'] = 0
+                            st.session_state['ev_val'] = 0
+                            st.session_state['tax_val'] = 0
+                            
+                            if "ev" in scenario or "petrol" in scenario:
+                                st.session_state['ev_val'] = val_50_scale
+                            if "renewable" in scenario or "solar" in scenario:
+                                st.session_state['ren_val'] = val_50_scale
+                            if "tax" in scenario or "carbon" in scenario:
+                                st.session_state['tax_val'] = val_20_scale
+                            
+                            st.info("🔄 Dashboard sliders automatically updated based on your policy proposal!")
+                            st.rerun()
 
-4. Click **"Commit changes"** and refresh your browser.
-
-Now, whether someone asks *"What is 2+2?"* or *"Ban all petrol cars"*, the AI will give a clean conversational response, parse the background scenario flawlessly, and jump straight to the sliders without crashing!
+                    except Exception as e:
+                        st.error(f"Oops! The AI didn't format its response correctly. Please try again! (Debug: {e})")
