@@ -16,13 +16,14 @@ if 'tax_val' not in st.session_state: st.session_state['tax_val'] = 0
 if 'chat_history' not in st.session_state: st.session_state['chat_history'] = []
 
 st.title("🇸🇬 Singapore CO₂ Machine Learning Simulator")
-st.markdown("Powered by Our World in Data, XGBoost, and Google Gemini.")
+st.markdown("Powered by Our World in Data, XGBoost, and the new **Gemini 3.5 Flash**.")
 
 # --- CONFIGURE AI ---
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if API_KEY:
     genai.configure(api_key=API_KEY)
-    model_ai = genai.GenerativeModel('gemini-2.5-flash') 
+    # Upgraded to the brand new Gemini 3.5 Flash from Google I/O 2026!
+    model_ai = genai.GenerativeModel('gemini-3.5-flash') 
 else:
     st.warning("⚠️ AI API Key not found in Streamlit Secrets. The AI Chatbot will be disabled.")
 
@@ -48,7 +49,8 @@ ml_model, full_data = load_ml_assets()
 # --- MAIN DASHBOARD ---
 if ml_model is not None and full_data is not None:
     
-    st.sidebar.header("🎛️ Policy Scenarios (Model Inputs)")
+    # -- SIDEBAR --
+    st.sidebar.header("🎛️ Policy Scenarios")
     
     renewable_intensity = st.sidebar.slider("Renewable Expansion (Reduce Fossil Fuel %)", 0, 50, value=st.session_state['ren_val'], step=5)
     ev_intensity = st.sidebar.slider("EV Transition (Reduce Oil CO₂ %)", 0, 50, value=st.session_state['ev_val'], step=5)
@@ -59,10 +61,8 @@ if ml_model is not None and full_data is not None:
     st.session_state['tax_val'] = carbon_tax_intensity
 
     st.sidebar.divider()
-    st.sidebar.subheader("📊 Dataset & Model Overview")
-    st.sidebar.caption("✅ Source: Our World in Data")
-    st.sidebar.caption("✅ Target: CO2 Emissions")
-    st.sidebar.caption("✅ Model: XGBoost Regressor")
+    st.sidebar.subheader("📊 Model Overview")
+    st.sidebar.caption("✅ Source: Our World in Data\n✅ Target: CO2 Emissions\n✅ Model: XGBoost Regressor")
 
     # --- ML PREDICTION ENGINE ---
     features_list = ['year', 'population', 'gdp', 'primary_energy_consumption', 'energy_per_gdp', 'energy_per_capita', 'coal_co2', 'oil_co2', 'gas_co2', 'fossil_fuel_co2']
@@ -94,25 +94,26 @@ if ml_model is not None and full_data is not None:
         p_pred = ml_model.predict(pol_df)[0]
         policy_preds.append(p_pred)
 
-    # --- DASHBOARD METRICS ---
     idx_2030 = future_years.index(2030) if 2030 in future_years else -1
     pred_2030_base = baseline_preds[idx_2030]
     pred_2030_policy = policy_preds[idx_2030]
     reduction = pred_2030_base - pred_2030_policy
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Baseline 2030 Forecast", f"{pred_2030_base:.2f} Mt")
-    col2.metric("Policy-Adjusted 2030 Forecast", f"{pred_2030_policy:.2f} Mt", f"-{reduction:.2f} Mt", delta_color="inverse")
-    if pred_2030_base > 0:
-        col3.metric("Total Reduction (%)", f"{(reduction/pred_2030_base)*100:.1f}%")
-
     st.write("---")
 
-    # --- TABS LAYOUT ---
-    tab1, tab2 = st.tabs(["📈 ML Forecast vs Scenarios", "🤖 Smart AI Chat & Controller"])
+    # --- SINGLE PAGE LAYOUT (No more tabs!) ---
+    # col_chart gets 60% of the screen, col_chat gets 40%
+    col_chart, col_chat = st.columns([1.5, 1])
 
-    with tab1:
-        st.subheader("Predictive ML Forecast (Historical + Future to 2035)")
+    with col_chart:
+        # Moved the metrics directly above the chart
+        met1, met2, met3 = st.columns(3)
+        met1.metric("Baseline 2030 Forecast", f"{pred_2030_base:.2f} Mt")
+        met2.metric("Policy-Adjusted 2030", f"{pred_2030_policy:.2f} Mt", f"-{reduction:.2f} Mt", delta_color="inverse")
+        if pred_2030_base > 0:
+            met3.metric("Reduction (%)", f"{(reduction/pred_2030_base)*100:.1f}%")
+
+        st.subheader("📈 ML Forecast vs Scenarios")
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=hist_years, y=hist_co2, mode='lines+markers', name='Historical Data', line=dict(color='black', width=2)))
         
@@ -123,81 +124,86 @@ if ml_model is not None and full_data is not None:
         fig.add_trace(go.Scatter(x=connect_year + future_years[1:], y=connect_base_co2 + baseline_preds[1:], mode='lines', name='Baseline Forecast', line=dict(color='gray', dash='dash')))
         fig.add_trace(go.Scatter(x=connect_year + future_years[1:], y=connect_pol_co2 + policy_preds[1:], mode='lines', name='Policy Intervention', line=dict(color='green', width=3)))
         
-        fig.update_layout(xaxis_title="Year", yaxis_title="CO₂ Emissions (Mt)", height=450, hovermode="x unified", xaxis=dict(type='category'))
+        fig.update_layout(xaxis_title="Year", yaxis_title="CO₂ Emissions (Mt)", height=450, hovermode="x unified", xaxis=dict(type='category'), margin=dict(l=0, r=0, t=30, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(fig, use_container_width=True)
 
-        st.info("ℹ️ **Methodology Note:** These projections represent *scenario simulations* where input variables (e.g., oil CO₂) are adjusted prior to prediction. They do not constitute absolute causal proof, but illustrate expected trends based on historical ML patterns.")
+        st.info("ℹ️ **Methodology Note:** These projections represent *scenario simulations* where input variables (e.g., oil CO₂) are adjusted prior to prediction.")
 
-    with tab2:
-        st.subheader("Interactive AI Assistant")
-        st.caption("Chat normally, or propose a policy! The AI acts ONLY as a classifier and will automatically adjust the dashboard sliders.")
+    with col_chat:
+        st.subheader("🤖 Smart AI Controller")
+        st.caption("Ask anything! Or propose a policy to watch the chart update in real-time.")
         
-        for msg in st.session_state['chat_history']:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
+        # We put the chat in a scrolling container so it matches the chart's height
+        chat_container = st.container(height=550)
         
-        if user_input := st.chat_input("Ask a question, or say: 'Let's impose a high carbon tax.'"):
+        with chat_container:
+            for msg in st.session_state['chat_history']:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+        
+        if user_input := st.chat_input("E.g., What if we ban all petrol cars?"):
             
             st.session_state['chat_history'].append({"role": "user", "content": user_input})
-            with st.chat_message("user"):
-                st.markdown(user_input)
+            with chat_container:
+                with st.chat_message("user"):
+                    st.markdown(user_input)
                 
-            with st.chat_message("assistant"):
-                if not API_KEY:
-                    st.error("API Key missing.")
-                else:
-                    prompt = f"""
-                    You are a helpful climate policy AI. You do NOT make up mathematical predictions. 
-                    The user said: "{user_input}"
-                    
-                    Task 1: If it's a general question (e.g., "Hello", "What is 2+2?"), answer it conversationally in the "message" field.
-                    Task 2: If they propose a policy, explain it in the "message" field and state you are updating the dashboard parameters for the XGBoost model.
-                    Task 3: Classify the policy into: "renewable", "ev", or "tax". If not a policy, output "none".
-                    Task 4: Determine intensity: "low", "medium", or "high". If not a policy, output "none".
-                    
-                    CRITICAL INSTRUCTION: You MUST output ONLY a valid JSON object.
-                    {{
-                      "message": "Your conversational response here...",
-                      "scenario": "none",
-                      "intensity": "none"
-                    }}
-                    """
-                    
-                    try:
-                        response = model_ai.generate_content(prompt)
-                        text_response = response.text
+            with chat_container:
+                with st.chat_message("assistant"):
+                    if not API_KEY:
+                        st.error("API Key missing.")
+                    else:
+                        # 3.5 Flash Prompt Update
+                        prompt = f"""
+                        You are a helpful climate policy AI. You do NOT make up mathematical predictions. 
+                        The user said: "{user_input}"
                         
-                        # Clean Regex extraction - completely bypasses the SyntaxError issue
-                        json_match = re.search(r'\{.*\}', text_response, re.DOTALL)
-                        if json_match:
-                            parsed_data = json.loads(json_match.group(0))
-                        else:
-                            parsed_data = {"message": text_response, "scenario": "none", "intensity": "none"}
+                        Task 1: If it's a general/dumb question (e.g., "Hello", "What is 2+2?"), answer it simply and conversationally in the "message" field.
+                        Task 2: If they propose a policy, write a short conversational response in the "message" field AND include 2-3 short bullet points of real-world government examples of this policy (e.g., Norway's EV incentives, Singapore's carbon tax). Also state clearly at the end: "I am updating the dashboard parameters..."
+                        Task 3: Classify the policy into: "renewable", "ev", or "tax". If not a policy, output "none".
+                        Task 4: Determine intensity: "low", "medium", or "high". If not a policy, output "none".
                         
-                        ai_message = parsed_data.get("message", "I couldn't process that. Could you rephrase?")
-                        scenario = parsed_data.get("scenario", "none").lower()
-                        intensity = parsed_data.get("intensity", "none").lower()
+                        CRITICAL INSTRUCTION: You MUST output ONLY a valid JSON object.
+                        {{
+                          "message": "Your conversational response here (with bullet points if applicable)...",
+                          "scenario": "none",
+                          "intensity": "none"
+                        }}
+                        """
                         
-                        st.markdown(ai_message)
-                        st.session_state['chat_history'].append({"role": "assistant", "content": ai_message})
-                        
-                        if scenario != "none" and scenario != "null":
-                            val_50_scale = 10 if intensity == "low" else 25 if intensity == "medium" else 50
-                            val_20_scale = 5 if intensity == "low" else 10 if intensity == "medium" else 20
+                        try:
+                            response = model_ai.generate_content(prompt)
+                            text_response = response.text
                             
-                            st.session_state['ren_val'] = 0
-                            st.session_state['ev_val'] = 0
-                            st.session_state['tax_val'] = 0
+                            json_match = re.search(r'\{.*\}', text_response, re.DOTALL)
+                            if json_match:
+                                parsed_data = json.loads(json_match.group(0))
+                            else:
+                                parsed_data = {"message": text_response, "scenario": "none", "intensity": "none"}
                             
-                            if "ev" in scenario or "petrol" in scenario:
-                                st.session_state['ev_val'] = val_50_scale
-                            if "renewable" in scenario or "solar" in scenario:
-                                st.session_state['ren_val'] = val_50_scale
-                            if "tax" in scenario or "carbon" in scenario:
-                                st.session_state['tax_val'] = val_20_scale
+                            ai_message = parsed_data.get("message", "I couldn't process that. Could you rephrase?")
+                            scenario = parsed_data.get("scenario", "none").lower()
+                            intensity = parsed_data.get("intensity", "none").lower()
                             
-                            st.info("🔄 Dashboard sliders automatically updated based on your policy proposal!")
-                            st.rerun()
+                            st.markdown(ai_message)
+                            st.session_state['chat_history'].append({"role": "assistant", "content": ai_message})
+                            
+                            if scenario != "none" and scenario != "null":
+                                val_50_scale = 10 if intensity == "low" else 25 if intensity == "medium" else 50
+                                val_20_scale = 5 if intensity == "low" else 10 if intensity == "medium" else 20
+                                
+                                st.session_state['ren_val'] = 0
+                                st.session_state['ev_val'] = 0
+                                st.session_state['tax_val'] = 0
+                                
+                                if "ev" in scenario or "petrol" in scenario:
+                                    st.session_state['ev_val'] = val_50_scale
+                                if "renewable" in scenario or "solar" in scenario:
+                                    st.session_state['ren_val'] = val_50_scale
+                                if "tax" in scenario or "carbon" in scenario:
+                                    st.session_state['tax_val'] = val_20_scale
+                                
+                                st.rerun()
 
-                    except Exception as e:
-                        st.error(f"Oops! The AI didn't format its response correctly. Please try again! (Debug: {e})")
+                        except Exception as e:
+                            st.error(f"Oops! The AI didn't format its response correctly. Please try again! (Debug: {e})")
