@@ -4,21 +4,27 @@ import plotly.graph_objects as go
 import google.generativeai as genai
 import joblib
 import os
+import json
 
-# --- PAGE SETUP ---
+# --- PAGE SETUP & SESSION STATE ---
 st.set_page_config(page_title="SG Climate ML Simulator", page_icon="🇸🇬", layout="wide")
 st.title("🇸🇬 Singapore CO₂ Machine Learning Simulator")
 st.markdown("Powered by Our World in Data, XGBoost, and Google Gemini.")
+
+# We create "Session States" to let the AI control the sliders
+if 'ren_val' not in st.session_state: st.session_state.ren_val = 0
+if 'ev_val' not in st.session_state: st.session_state.ev_val = 0
+if 'tax_val' not in st.session_state: st.session_state.tax_val = 0
 
 # --- CONFIGURE AI ---
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if API_KEY:
     genai.configure(api_key=API_KEY)
-    model_ai = genai.GenerativeModel('gemini-2.5-flash') 
+    model_ai = genai.GenerativeModel('gemini-3.5-flash') 
 else:
     st.warning("⚠️ AI API Key not found in Streamlit Secrets. The AI Chatbot will be disabled.")
 
-# --- BULLETPROOF DATA LOADING ---
+# --- DATA LOADING ---
 @st.cache_resource
 def load_ml_assets():
     model_file = 'best_co2_model.joblib'
@@ -27,7 +33,6 @@ def load_ml_assets():
     if not os.path.exists(model_file) or not os.path.exists(data_file):
         st.error(f"⚠️ Missing ML files! Please ensure '{model_file}' and '{data_file}' are uploaded to GitHub.")
         return None, None
-        
     try:
         model = joblib.load(model_file)
         full_data = pd.read_csv(data_file)
@@ -36,7 +41,6 @@ def load_ml_assets():
         st.error(f"⚠️ Error reading ML files: {e}")
         return None, None
 
-# Load ML assets safely (OECD loading removed)
 ml_model, full_data = load_ml_assets()
 
 # --- MAIN DASHBOARD ---
@@ -45,16 +49,16 @@ if ml_model is not None and full_data is not None:
     # --- SIDEBAR: POLICY SCENARIOS ---
     st.sidebar.header("🎛️ Policy Scenarios (Model Inputs)")
     
-    renewable_intensity = st.sidebar.slider("Renewable Expansion (Reduce Fossil Fuel %)", 0, 50, 0, step=5)
-    ev_intensity = st.sidebar.slider("EV Transition (Reduce Oil CO₂ %)", 0, 50, 0, step=5)
-    carbon_tax_intensity = st.sidebar.slider("Carbon Tax (Improve Energy/GDP %)", 0, 20, 0, step=2)
+    # Notice the "key" argument. This ties the slider to the AI's brain!
+    renewable_intensity = st.sidebar.slider("Renewable Expansion (Reduce Fossil Fuel %)", 0, 50, key='ren_val', step=5)
+    ev_intensity = st.sidebar.slider("EV Transition (Reduce Oil CO₂ %)", 0, 50, key='ev_val', step=5)
+    carbon_tax_intensity = st.sidebar.slider("Carbon Tax (Improve Energy/GDP %)", 0, 20, key='tax_val', step=2)
 
     st.sidebar.divider()
     st.sidebar.subheader("📊 Dataset & Model Overview")
     st.sidebar.caption("✅ Source: Our World in Data")
     st.sidebar.caption("✅ Target: CO2 Emissions")
     st.sidebar.caption("✅ Model: XGBoost Regressor")
-    st.sidebar.caption(f"✅ Training Records: {len(full_data)}")
 
     # --- ML PREDICTION ENGINE ---
     features_list = ['year', 'population', 'gdp', 'primary_energy_consumption', 'energy_per_gdp', 'energy_per_capita', 'coal_co2', 'oil_co2', 'gas_co2', 'fossil_fuel_co2']
@@ -71,14 +75,12 @@ if ml_model is not None and full_data is not None:
     policy_preds = []
 
     for year in future_years:
-        # Baseline Row
         base_row = latest_features.copy()
         base_row['year'] = year
         base_df = pd.DataFrame([base_row])[features_list]
         b_pred = ml_model.predict(base_df)[0]
         baseline_preds.append(b_pred)
 
-        # Policy-Adjusted Row
         pol_row = base_row.copy()
         pol_row['oil_co2'] = pol_row['oil_co2'] * (1 - (ev_intensity/100))
         pol_row['fossil_fuel_co2'] = pol_row['fossil_fuel_co2'] * (1 - (renewable_intensity/100))
@@ -103,11 +105,10 @@ if ml_model is not None and full_data is not None:
     st.write("---")
 
     # --- TABS LAYOUT ---
-    tab1, tab2 = st.tabs(["📈 ML Forecast vs Scenarios", "🤖 Strict AI Classifier"])
+    tab1, tab2 = st.tabs(["📈 ML Forecast vs Scenarios", "🤖 Smart AI Policy Engine"])
 
     with tab1:
         st.subheader("Predictive ML Forecast (Historical + Future to 2035)")
-        
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=hist_years, y=hist_co2, mode='lines+markers', name='Historical Data', line=dict(color='black', width=2)))
         
@@ -122,28 +123,57 @@ if ml_model is not None and full_data is not None:
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-        st.subheader("Strict Policy Classifier (Prompt 6)")
-        st.caption("As requested, this AI does NOT generate mathematical predictions. It only classifies text into structured JSON.")
+        st.subheader("Automated Dashboard Controller")
+        st.caption("Type a real-world policy idea. The AI will classify it and automatically adjust the sliders on the left to simulate the impact.")
         
-        user_policy = st.text_area("Enter a proposed climate policy for Singapore:")
-        if st.button("Classify Policy"):
+        user_policy = st.text_area("Example: 'Let's ban all petrol cars by 2030 and invest heavily in solar panels.'")
+        
+        if st.button("Simulate Policy Impact"):
             if not API_KEY:
-                st.error("API Key missing in secrets.")
+                st.error("API Key missing.")
             else:
+                # We ask the AI for the JSON code in the background
                 prompt = f"""
-                You are a strictly constrained data classifier. Do NOT make up numbers or predict CO2.
-                Classify the user's policy into one of these scenarios: "Renewable energy expansion", "Petrol car quota / EV transition", or "Carbon tax".
-                Output ONLY valid JSON format like this example:
+                You are an internal data parser. 
+                Classify the user's policy into one or more of these scenarios: "Renewable energy", "EV transition", or "Carbon tax".
+                Determine the intensity: "low", "medium", or "high".
+                Output ONLY valid JSON format exactly like this example, nothing else:
                 {{
-                  "scenario": "Petrol car quota / EV transition",
-                  "intensity": "medium",
-                  "affected_variables": ["oil_co2", "fossil_fuel_co2"]
+                  "scenario": "EV transition",
+                  "intensity": "high"
                 }}
                 
                 User Policy: {user_policy}
                 """
+                
                 try:
                     response = model_ai.generate_content(prompt)
-                    st.json(response.text.replace("```json","").replace("```",""))
+                    # Clean up the AI's response to get pure JSON code
+                    clean_json = response.text.replace("```json","").replace("```","").strip()
+                    parsed_data = json.loads(clean_json)
+                    
+                    scenario = parsed_data.get("scenario", "").lower()
+                    intensity = parsed_data.get("intensity", "low").lower()
+                    
+                    # Convert the AI's "intensity" word into numbers for our sliders
+                    val_50_scale = 10 if intensity == "low" else 25 if intensity == "medium" else 50
+                    val_20_scale = 5 if intensity == "low" else 10 if intensity == "medium" else 20
+                    
+                    # Reset sliders to 0 first
+                    st.session_state.ren_val = 0
+                    st.session_state.ev_val = 0
+                    st.session_state.tax_val = 0
+                    
+                    # Automatically move the sliders based on what the AI decided
+                    if "ev" in scenario or "petrol" in scenario:
+                        st.session_state.ev_val = val_50_scale
+                    if "renewable" in scenario or "solar" in scenario:
+                        st.session_state.ren_val = val_50_scale
+                    if "tax" in scenario or "carbon" in scenario:
+                        st.session_state.tax_val = val_20_scale
+                    
+                    # Tell Streamlit to refresh the page to show the new chart!
+                    st.rerun()
+                    
                 except Exception as e:
-                    st.error(f"AI Error: {e}")
+                    st.error(f"Failed to process policy. Please try phrasing it differently.")
