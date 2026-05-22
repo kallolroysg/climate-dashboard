@@ -6,6 +6,7 @@ import joblib
 import os
 import json
 import re
+import numpy as np
 
 # --- PAGE SETUP & SESSION STATE ---
 st.set_page_config(page_title="SG Climate ML Simulator", page_icon="🇸🇬", layout="wide")
@@ -16,13 +17,12 @@ if 'tax_val' not in st.session_state: st.session_state['tax_val'] = 0
 if 'chat_history' not in st.session_state: st.session_state['chat_history'] = []
 
 st.title("🇸🇬 Singapore CO₂ Machine Learning Simulator")
-st.markdown("Powered by Our World in Data, XGBoost, and the new **Gemini 3.5 Flash**.")
+st.markdown("Powered by Our World in Data, XGBoost, and **Gemini 3.5 Flash**.")
 
 # --- CONFIGURE AI ---
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if API_KEY:
     genai.configure(api_key=API_KEY)
-    # Upgraded to the brand new Gemini 3.5 Flash from Google I/O 2026!
     model_ai = genai.GenerativeModel('gemini-3.5-flash') 
 else:
     st.warning("⚠️ AI API Key not found in Streamlit Secrets. The AI Chatbot will be disabled.")
@@ -49,7 +49,6 @@ ml_model, full_data = load_ml_assets()
 # --- MAIN DASHBOARD ---
 if ml_model is not None and full_data is not None:
     
-    # -- SIDEBAR --
     st.sidebar.header("🎛️ Policy Scenarios")
     
     renewable_intensity = st.sidebar.slider("Renewable Expansion (Reduce Fossil Fuel %)", 0, 50, value=st.session_state['ren_val'], step=5)
@@ -64,7 +63,7 @@ if ml_model is not None and full_data is not None:
     st.sidebar.subheader("📊 Model Overview")
     st.sidebar.caption("✅ Source: Our World in Data\n✅ Target: CO2 Emissions\n✅ Model: XGBoost Regressor")
 
-    # --- ML PREDICTION ENGINE ---
+    # --- ML PREDICTION ENGINE (Now with Realistic Economic Fluctuations!) ---
     features_list = ['year', 'population', 'gdp', 'primary_energy_consumption', 'energy_per_gdp', 'energy_per_capita', 'coal_co2', 'oil_co2', 'gas_co2', 'fossil_fuel_co2']
     
     hist_data = full_data.tail(10)
@@ -79,8 +78,19 @@ if ml_model is not None and full_data is not None:
     policy_preds = []
 
     for year in future_years:
+        years_ahead = year - latest_year
+        
+        # Adding realistic organic growth + sine-wave fluctuations to make the line jagged and natural
+        economic_cycle = 1.0 + (np.sin(year * 1.5) * 0.02)  # Creates small +/- 2% bumps based on the year
+        
         base_row = latest_features.copy()
         base_row['year'] = year
+        base_row['gdp'] = base_row['gdp'] * ((1.025) ** years_ahead) * economic_cycle
+        base_row['population'] = base_row['population'] * ((1.01) ** years_ahead)
+        base_row['primary_energy_consumption'] = base_row['primary_energy_consumption'] * ((1.015) ** years_ahead) * economic_cycle
+        base_row['oil_co2'] = base_row['oil_co2'] * ((1.01) ** years_ahead) * economic_cycle
+        base_row['fossil_fuel_co2'] = base_row['fossil_fuel_co2'] * ((1.01) ** years_ahead) * economic_cycle
+
         base_df = pd.DataFrame([base_row])[features_list]
         b_pred = ml_model.predict(base_df)[0]
         baseline_preds.append(b_pred)
@@ -101,12 +111,10 @@ if ml_model is not None and full_data is not None:
 
     st.write("---")
 
-    # --- SINGLE PAGE LAYOUT (No more tabs!) ---
-    # col_chart gets 60% of the screen, col_chat gets 40%
+    # --- SINGLE PAGE LAYOUT ---
     col_chart, col_chat = st.columns([1.5, 1])
 
     with col_chart:
-        # Moved the metrics directly above the chart
         met1, met2, met3 = st.columns(3)
         met1.metric("Baseline 2030 Forecast", f"{pred_2030_base:.2f} Mt")
         met2.metric("Policy-Adjusted 2030", f"{pred_2030_policy:.2f} Mt", f"-{reduction:.2f} Mt", delta_color="inverse")
@@ -133,7 +141,6 @@ if ml_model is not None and full_data is not None:
         st.subheader("🤖 Smart AI Controller")
         st.caption("Ask anything! Or propose a policy to watch the chart update in real-time.")
         
-        # We put the chat in a scrolling container so it matches the chart's height
         chat_container = st.container(height=550)
         
         with chat_container:
@@ -153,7 +160,6 @@ if ml_model is not None and full_data is not None:
                     if not API_KEY:
                         st.error("API Key missing.")
                     else:
-                        # 3.5 Flash Prompt Update
                         prompt = f"""
                         You are a helpful climate policy AI. You do NOT make up mathematical predictions. 
                         The user said: "{user_input}"
@@ -189,8 +195,10 @@ if ml_model is not None and full_data is not None:
                             st.session_state['chat_history'].append({"role": "assistant", "content": ai_message})
                             
                             if scenario != "none" and scenario != "null":
-                                val_50_scale = 10 if intensity == "low" else 25 if intensity == "medium" else 50
-                                val_20_scale = 5 if intensity == "low" else 10 if intensity == "medium" else 20
+                                # Toned down the AI intensity to leave room for the user!
+                                # Max slider is 50, but AI High is now 35. Max tax is 20, AI High is 15.
+                                val_50_scale = 10 if intensity == "low" else 20 if intensity == "medium" else 35
+                                val_20_scale = 4 if intensity == "low" else 8 if intensity == "medium" else 15
                                 
                                 st.session_state['ren_val'] = 0
                                 st.session_state['ev_val'] = 0
