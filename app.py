@@ -2,164 +2,135 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import google.generativeai as genai
+import joblib
 
-# --- 1. PROFESSIONAL PAGE SETUP ---
-st.set_page_config(page_title="SG Climate Simulator", page_icon="🇸🇬", layout="wide")
+# --- PAGE SETUP ---
+st.set_page_config(page_title="SG Climate ML Simulator", page_icon="🇸🇬", layout="wide")
+st.title("🇸🇬 Singapore 2030 Carbon ML Simulator")
+st.markdown("Real ML predictions based on Our World in Data historical records.")
 
-st.markdown("""
-<style>
-    .block-container { padding-top: 1rem; padding-bottom: 1rem; }
-    h1 { color: #0F172A; font-weight: 700; margin-bottom: 0rem; padding-bottom: 0rem;}
-    .stMetric { background-color: #F8FAFC; padding: 10px; border-radius: 8px; border: 1px solid #E2E8F0; }
-</style>
-""", unsafe_allow_html=True)
-
-st.title("🇸🇬 Singapore 2030 Carbon Policy Simulator")
-st.markdown("Adjust the levers on the left to simulate reductions and consult the AI.")
-
-# --- 2. CONFIGURE FREE AI ---
+# --- CONFIGURE AI ---
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if API_KEY:
     genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel('gemini-2.5-flash') 
+    model_ai = genai.GenerativeModel('gemini-2.5-flash') 
 else:
-    st.error("AI API Key not found. Please add it to Streamlit Secrets.")
+    st.error("AI API Key not found.")
 
-# --- 3. LOAD OECD DATA ---
+# --- LOAD ML MODEL & DATA ---
+@st.cache_resource
+def load_ml_assets():
+    try:
+        model = joblib.load('best_co2_model.joblib')
+        base_data = pd.read_csv('latest_sg_data.csv')
+        return model, base_data
+    except Exception as e:
+        st.error(f"Please upload the ML model and data to GitHub. Error: {e}")
+        return None, None
+
+ml_model, base_data = load_ml_assets()
+
+# --- LOAD OECD DATA ---
 @st.cache_data
-def load_data():
+def load_oecd_data():
     try:
         taxes = pd.read_csv('IFCMA_ClimatePolicyDashboard_Data_April 2026.xlsx - Taxes.csv', skiprows=1)
         subsidies = pd.read_csv('IFCMA_ClimatePolicyDashboard_Data_April 2026.xlsx - Subsidies.csv', skiprows=1)
         return taxes, subsidies
-    except FileNotFoundError:
+    except:
         return pd.DataFrame(), pd.DataFrame()
 
-taxes_df, subsidies_df = load_data()
+taxes_df, subsidies_df = load_oecd_data()
 
-# --- 4. INTERACTIVE SIDEBAR ---
-st.sidebar.header("🎛️ Policy Levers")
-renewable_target = st.sidebar.slider("Renewable Energy Share (%)", min_value=5, max_value=50, value=5, step=1)
-ev_adoption = st.sidebar.slider("EV Transition Rate (%)", min_value=15, max_value=100, value=15, step=5)
-carbon_tax = st.sidebar.slider("Carbon Tax (S$/tonne)", min_value=25, max_value=150, value=45, step=5)
-
-st.sidebar.divider()
-
-st.sidebar.subheader("⚙️ Secondary Variables")
-fossil_fuel_share = 95.0 - (renewable_target - 5.0) - ((ev_adoption - 15.0) * 0.1)
-oil_share = 90.0 - (ev_adoption - 15.0)
-energy_intensity = 100.0 - ((carbon_tax - 45.0) * 0.3)
-
-st.sidebar.metric(label="fossil_fuel_share ↓", value=f"{fossil_fuel_share:.1f}%", delta=f"{fossil_fuel_share - 95.0:.1f}% base", delta_color="inverse")
-st.sidebar.metric(label="oil_share ↓", value=f"{oil_share:.1f}%", delta=f"{oil_share - 90.0:.1f}% base", delta_color="inverse")
-st.sidebar.metric(label="energy_intensity ↓", value=f"{energy_intensity:.1f} pts", delta=f"{energy_intensity - 100.0:.1f} pts base", delta_color="inverse")
-
-# --- 5. PREDICTION MATH (The Fix is Here!) ---
-base_2030 = 58.0 
-total_reduction = ((renewable_target - 5) * 0.15) + ((ev_adoption - 15) * 0.08) + ((carbon_tax - 45) * 0.05)             
-projected_2030 = base_2030 - total_reduction
-
-# BULLETPROOF FIX: We turn the years into TEXT strings so Plotly can't mess with them
-years_text = [str(year) for year in range(2020, 2031)] 
-
-baseline_curve = [50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 56.5, 57.0, 57.5, 58.0]
-
-scenario_curve = [50.0, 51.0, 52.0, 53.0, 54.0]
-for i in range(1, 7):
-    scenario_curve.append(54.0 + (projected_2030 - 54.0) * (i / 6))
-
-# --- 6. TOP METRICS DASHBOARD ---
-col_m1, col_m2, col_m3 = st.columns(3)
-col_m1.metric(label="Projected 2030 Emissions", value=f"{projected_2030:.1f} Mt", delta=f"-{total_reduction:.1f} Mt vs Baseline", delta_color="inverse")
-col_m2.metric(label="Renewable Grid Target", value=f"{renewable_target}%", delta="Solar Expansion")
-col_m3.metric(label="Carbon Price", value=f"S${carbon_tax}", delta="Cost to Emitters", delta_color="off")
-st.write("") 
-
-# --- 7. SINGLE SCREEN LAYOUT (Chart on Left, Tabs on Right) ---
-col1, col2 = st.columns([1.2, 1])
-
-with col1:
-    fig = go.Figure()
+if ml_model is not None and not base_data.empty:
     
-    # Passing the TEXT years instead of numbers
-    fig.add_trace(go.Scatter(x=years_text, y=baseline_curve, mode='lines+markers', name='Business as Usual', line=dict(color='#94A3B8', dash='dash', width=3)))
+    # --- SIDEBAR: POLICY LEVERS ---
+    st.sidebar.header("🎛️ Policy Scenarios")
     
-    text_labels = [""] * 10 + [f"{projected_2030:.1f} Mt"]
-    
-    fig.add_trace(go.Scatter(x=years_text, y=scenario_curve, mode='lines+markers+text', name='Policy Intervention', 
-                             line=dict(color='#10B981', width=4),
-                             text=text_labels, textposition="bottom center"))
-    
-    fig.update_layout(
-        title="CO₂ Emissions Trajectory (2020 - 2030)",
-        xaxis_title="Year", 
-        yaxis_title="Million Tonnes (Mt) CO₂",
-        hovermode="x unified",
-        margin=dict(l=0, r=0, t=40, b=0),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        height=450,
-        # Force the axis to treat it exactly like text categories
-        xaxis=dict(type='category') 
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    renewable_intensity = st.sidebar.slider("Renewable Expansion (Reduce Fossil Fuel %)", 0, 50, 0, step=5)
+    ev_intensity = st.sidebar.slider("EV Transition (Reduce Oil CO2 %)", 0, 50, 0, step=5)
+    carbon_tax_intensity = st.sidebar.slider("Carbon Tax Intensity (Improve Energy/GDP %)", 0, 20, 0, step=2)
 
-with col2:
-    tab1, tab2 = st.tabs(["📋 OECD Matches", "💬 AI Advisor"])
+    st.sidebar.divider()
+    st.sidebar.subheader("📊 Dataset Overview")
+    st.sidebar.caption("- Source: Our World in Data")
+    st.sidebar.caption("- Target: CO2 Emissions")
+    st.sidebar.caption("- Model: Best performing Regressor (XGB/RF)")
+
+    # --- ML PREDICTION LOGIC ---
+    # 1. Baseline Prediction (No Changes)
+    features = ['year', 'population', 'gdp', 'primary_energy_consumption', 'energy_per_gdp', 'energy_per_capita', 'coal_co2', 'oil_co2', 'gas_co2', 'fossil_fuel_co2']
     
+    base_input = base_data.copy()
+    base_input['year'] = 2030 # Projecting to 2030
+    baseline_pred = ml_model.predict(base_input[features])[0]
+
+    # 2. Adjusted Prediction (Applying sliders to variables as teammate requested)
+    adj_input = base_input.copy()
+    
+    # EV Transition reduces oil_co2
+    adj_input['oil_co2'] = adj_input['oil_co2'] * (1 - (ev_intensity/100))
+    # Renewable reduces total fossil fuel proxy
+    adj_input['fossil_fuel_co2'] = adj_input['fossil_fuel_co2'] * (1 - (renewable_intensity/100))
+    # Carbon tax improves energy intensity
+    adj_input['energy_per_gdp'] = adj_input['energy_per_gdp'] * (1 - (carbon_tax_intensity/100))
+    
+    adjusted_pred = ml_model.predict(adj_input[features])[0]
+    total_reduction = baseline_pred - adjusted_pred
+
+    # --- DASHBOARD METRICS ---
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Baseline 2030 Prediction", f"{baseline_pred:.2f} Mt")
+    col2.metric("Policy-Adjusted Prediction", f"{adjusted_pred:.2f} Mt", f"-{total_reduction:.2f} Mt", delta_color="inverse")
+    col3.metric("Reduction", f"{(total_reduction/baseline_pred)*100:.1f}%")
+
+    st.write("---")
+
+    # --- TABS LAYOUT ---
+    tab1, tab2, tab3 = st.tabs(["📈 ML Forecast", "📋 OECD Policies", "🤖 AI Classifier"])
+
     with tab1:
-        st.write("Dynamic recommendations based on highest slider setting:")
-        st.session_state['policy_context'] = ""
-        recs = pd.DataFrame()
+        st.subheader("Model Projections vs Baseline")
+        # Creating a simple chart with historical + predicted data
+        hist_years = [2020, 2021, 2022] # Mock recent history for visual continuity
+        hist_co2 = [49.0, 50.5, 51.5]
         
-        if carbon_tax >= 80 and not taxes_df.empty:
-            st.info("💡 High Carbon Tax detected. Showing global tax policies:")
-            recs = taxes_df[taxes_df['Approach'].astype(str).str.contains("Carbon", case=False, na=False)].head(3)
-        elif renewable_target >= 30 and not subsidies_df.empty:
-            st.info("💡 High Renewable target detected. Showing clean energy subsidies:")
-            recs = subsidies_df[subsidies_df['Approach'].astype(str).str.contains("Renewable", case=False, na=False)].head(3)
-        elif ev_adoption >= 50 and not subsidies_df.empty:
-            st.info("💡 High EV Adoption detected. Showing vehicle subsidies:")
-            recs = subsidies_df[subsidies_df['Approach'].astype(str).str.contains("Vehicle", case=False, na=False)].head(3)
-        else:
-            st.warning("Increase the sliders on the left to trigger recommendations.")
-            
-        if not recs.empty:
-            for idx, row in recs.iterrows():
-                with st.expander(f"📍 {row.get('Country', 'Unknown')} - {row.get('Approach', 'Policy')}"):
-                    st.write(f"**Policy:** {row.get('English name', 'N/A')}")
-                    st.write(f"**Details:** {row.get('Description', 'No description available.')}")
-                st.session_state['policy_context'] += f"Country: {row.get('Country')}, Policy: {row.get('English name')}, Details: {row.get('Description')}\n\n"
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=hist_years + [2030], y=hist_co2 + [baseline_pred], mode='lines+markers', name='Baseline (No Action)', line=dict(dash='dash', color='gray')))
+        fig.add_trace(go.Scatter(x=hist_years + [2030], y=hist_co2 + [adjusted_pred], mode='lines+markers', name='Policy Interventions', line=dict(color='green', width=4)))
+        
+        fig.update_layout(xaxis=dict(type='category'), yaxis_title="CO2 (Mt)", height=400)
+        st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-        chat_container = st.container(height=320)
+        st.write("Dynamic recommendations based on active policies:")
+        if ev_intensity > 0:
+            st.info("EV Transition active. Matching OECD Policies:")
+            st.dataframe(subsidies_df[subsidies_df['Approach'].astype(str).str.contains("Vehicle", case=False, na=False)][['Country', 'English name']].head(3))
+        if carbon_tax_intensity > 0:
+            st.info("Carbon Tax active. Matching OECD Policies:")
+            st.dataframe(taxes_df[taxes_df['Approach'].astype(str).str.contains("Carbon", case=False, na=False)][['Country', 'English name']].head(3))
+
+    with tab3:
+        st.subheader("AI Policy Classifier")
+        st.caption("As per project requirements, this AI does NOT invent numbers. It only classifies policy text into our scenario JSON format.")
         
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-
-        with chat_container:
-            for message in st.session_state.messages:
-                with st.chat_message(message["role"]):
-                    st.markdown(message["content"])
-
-        if prompt := st.chat_input("E.g., How can Singapore fund these EV subsidies?"):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with chat_container:
-                with st.chat_message("user"):
-                    st.markdown(prompt)
-
-                with st.chat_message("assistant"):
-                    if not API_KEY:
-                        st.error("Please add your Gemini API Key to Streamlit secrets.")
-                    else:
-                        context = st.session_state.get('policy_context', 'No specific policy selected.')
-                        system_prompt = f"""You are a climate policy advisor for Singapore. 
-                        The user has set sliders resulting in a 2030 target of {projected_2030:.1f} Mt.
-                        OECD context:\n{context}\n
-                        Answer concisely and professionally. Question: {prompt}"""
-                        
-                        try:
-                            response = model.generate_content(system_prompt)
-                            st.markdown(response.text)
-                            st.session_state.messages.append({"role": "assistant", "content": response.text})
-                        except Exception as e:
-                            st.error(f"Error communicating with AI: {e}")
+        user_policy = st.text_area("Enter a proposed climate policy for classification:")
+        if st.button("Classify Policy"):
+            if not API_KEY:
+                st.error("API Key missing.")
+            else:
+                prompt = f"""
+                You are a strictly constrained data classifier. Do NOT generate predictions or make up numbers.
+                Classify the user's policy into one of these scenarios: "Renewable energy expansion", "Petrol car quota / EV transition", or "Carbon tax".
+                Output ONLY valid JSON format like this example:
+                {{
+                  "scenario": "Petrol car quota / EV transition",
+                  "intensity": "medium",
+                  "affected_variables": ["oil_co2", "fossil_fuel_co2"]
+                }}
+                
+                User Policy: {user_policy}
+                """
+                response = model_ai.generate_content(prompt)
+                st.json(response.text.replace("```json","").replace("```",""))
