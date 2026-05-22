@@ -63,7 +63,7 @@ if ml_model is not None and full_data is not None:
     st.sidebar.subheader("📊 Model Overview")
     st.sidebar.caption("✅ Source: Our World in Data\n✅ Target: CO2 Emissions\n✅ Model: XGBoost Regressor")
 
-    # --- ML PREDICTION ENGINE (Now with Realistic Economic Fluctuations!) ---
+    # --- ML PREDICTION ENGINE ---
     features_list = ['year', 'population', 'gdp', 'primary_energy_consumption', 'energy_per_gdp', 'energy_per_capita', 'coal_co2', 'oil_co2', 'gas_co2', 'fossil_fuel_co2']
     
     hist_data = full_data.tail(10)
@@ -80,14 +80,14 @@ if ml_model is not None and full_data is not None:
     for year in future_years:
         years_ahead = year - latest_year
         
-        # Adding realistic organic growth + sine-wave fluctuations to make the line jagged and natural
-        economic_cycle = 1.0 + (np.sin(year * 1.5) * 0.02)  # Creates small +/- 2% bumps based on the year
+        # SMOOTHED OUT MATH: Creating a gentle 7-year macro-economic cycle instead of a jagged yearly mess
+        economic_cycle = 1.0 + (np.sin((year - latest_year) * 0.8) * 0.01) 
         
         base_row = latest_features.copy()
         base_row['year'] = year
-        base_row['gdp'] = base_row['gdp'] * ((1.025) ** years_ahead) * economic_cycle
-        base_row['population'] = base_row['population'] * ((1.01) ** years_ahead)
-        base_row['primary_energy_consumption'] = base_row['primary_energy_consumption'] * ((1.015) ** years_ahead) * economic_cycle
+        base_row['gdp'] = base_row['gdp'] * ((1.02) ** years_ahead) * economic_cycle
+        base_row['population'] = base_row['population'] * ((1.008) ** years_ahead)
+        base_row['primary_energy_consumption'] = base_row['primary_energy_consumption'] * ((1.012) ** years_ahead) * economic_cycle
         base_row['oil_co2'] = base_row['oil_co2'] * ((1.01) ** years_ahead) * economic_cycle
         base_row['fossil_fuel_co2'] = base_row['fossil_fuel_co2'] * ((1.01) ** years_ahead) * economic_cycle
 
@@ -160,18 +160,22 @@ if ml_model is not None and full_data is not None:
                     if not API_KEY:
                         st.error("API Key missing.")
                     else:
+                        # SG-FIRST PROMPT: Forcing the AI to be a local expert
                         prompt = f"""
-                        You are a helpful climate policy AI. You do NOT make up mathematical predictions. 
+                        You are a helpful climate policy AI advising the Singapore Government. You do NOT make up mathematical predictions. 
                         The user said: "{user_input}"
                         
                         Task 1: If it's a general/dumb question (e.g., "Hello", "What is 2+2?"), answer it simply and conversationally in the "message" field.
-                        Task 2: If they propose a policy, write a short conversational response in the "message" field AND include 2-3 short bullet points of real-world government examples of this policy (e.g., Norway's EV incentives, Singapore's carbon tax). Also state clearly at the end: "I am updating the dashboard parameters..."
+                        Task 2: If they propose a policy, write a short conversational response in the "message" field. 
+                        - FIRST, provide 1-2 bullet points on how this could be implemented LOCALLY in Singapore (e.g., referencing COE quotas, HDB solar panels, LTA, or the current SG Carbon Tax). 
+                        - THEN, provide 1-2 bullet points of successful OVERSEAS examples.
+                        - FINALLY, state clearly at the end: "I am updating the dashboard parameters..."
                         Task 3: Classify the policy into: "renewable", "ev", or "tax". If not a policy, output "none".
                         Task 4: Determine intensity: "low", "medium", or "high". If not a policy, output "none".
                         
                         CRITICAL INSTRUCTION: You MUST output ONLY a valid JSON object.
                         {{
-                          "message": "Your conversational response here (with bullet points if applicable)...",
+                          "message": "Your conversational response here (with SG context first, then overseas)...",
                           "scenario": "none",
                           "intensity": "none"
                         }}
@@ -195,8 +199,6 @@ if ml_model is not None and full_data is not None:
                             st.session_state['chat_history'].append({"role": "assistant", "content": ai_message})
                             
                             if scenario != "none" and scenario != "null":
-                                # Toned down the AI intensity to leave room for the user!
-                                # Max slider is 50, but AI High is now 35. Max tax is 20, AI High is 15.
                                 val_50_scale = 10 if intensity == "low" else 20 if intensity == "medium" else 35
                                 val_20_scale = 4 if intensity == "low" else 8 if intensity == "medium" else 15
                                 
