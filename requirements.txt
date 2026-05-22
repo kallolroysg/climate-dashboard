@@ -2,3 +2,7 @@ streamlit
 pandas
 plotly
 google-generativeai
+scikit-learn
+xgboost
+joblib
+openpyxl
