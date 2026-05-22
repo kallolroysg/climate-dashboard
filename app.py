@@ -36,31 +36,10 @@ def load_ml_assets():
         st.error(f"⚠️ Error reading ML files: {e}")
         return None, None
 
-@st.cache_data
-def load_oecd_data():
-    taxes_file = 'IFCMA_ClimatePolicyDashboard_Data_April 2026.xlsx - Taxes.csv'
-    subs_file = 'IFCMA_ClimatePolicyDashboard_Data_April 2026.xlsx - Subsidies.csv'
-    
-    taxes_df = pd.DataFrame()
-    subs_df = pd.DataFrame()
-    
-    if os.path.exists(taxes_file):
-        taxes_df = pd.read_csv(taxes_file, skiprows=1)
-    else:
-        st.warning(f"⚠️ Missing policy file: '{taxes_file}'. Policy recommendations are disabled.")
-        
-    if os.path.exists(subs_file):
-        subs_df = pd.read_csv(subs_file, skiprows=1)
-    else:
-        st.warning(f"⚠️ Missing policy file: '{subs_file}'. Policy recommendations are disabled.")
-        
-    return taxes_df, subs_df
-
-# Load everything safely
+# Load ML assets safely (OECD loading removed)
 ml_model, full_data = load_ml_assets()
-taxes_df, subsidies_df = load_oecd_data()
 
-# --- MAIN DASHBOARD (Only runs if ML loads successfully) ---
+# --- MAIN DASHBOARD ---
 if ml_model is not None and full_data is not None:
     
     # --- SIDEBAR: POLICY SCENARIOS ---
@@ -141,17 +120,6 @@ if ml_model is not None and full_data is not None:
         
         fig.update_layout(xaxis_title="Year", yaxis_title="CO₂ Emissions (Mt)", height=450, hovermode="x unified", xaxis=dict(type='category'))
         st.plotly_chart(fig, use_container_width=True)
-
-        # Show Policy matches if data exists
-        if not taxes_df.empty or not subsidies_df.empty:
-            st.write("---")
-            st.write("📋 **Dynamic OECD Recommendations:**")
-            if ev_intensity > 0 and not subsidies_df.empty:
-                st.info("EV Transition active. Matching OECD Policies:")
-                st.dataframe(subsidies_df[subsidies_df['Approach'].astype(str).str.contains("Vehicle", case=False, na=False)][['Country', 'English name']].head(3))
-            if carbon_tax_intensity > 0 and not taxes_df.empty:
-                st.info("Carbon Tax active. Matching OECD Policies:")
-                st.dataframe(taxes_df[taxes_df['Approach'].astype(str).str.contains("Carbon", case=False, na=False)][['Country', 'English name']].head(3))
 
     with tab2:
         st.subheader("Strict Policy Classifier (Prompt 6)")
