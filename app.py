@@ -5,17 +5,18 @@ import google.generativeai as genai
 import joblib
 import os
 import json
+import re
 
 # --- PAGE SETUP & SESSION STATE ---
 st.set_page_config(page_title="SG Climate ML Simulator", page_icon="🇸🇬", layout="wide")
 st.title("🇸🇬 Singapore CO₂ Machine Learning Simulator")
 st.markdown("Powered by Our World in Data, XGBoost, and Google Gemini.")
 
-# Session States for Sliders and Chat History
-if 'ren_val' not in st.session_state: st.session_state.ren_val = 0
-if 'ev_val' not in st.session_state: st.session_state.ev_val = 0
-if 'tax_val' not in st.session_state: st.session_state.tax_val = 0
-if 'chat_history' not in st.session_state: st.session_state.chat_history = []
+# SAFEST WAY TO INITIALIZE STATE: Using bracket notation to prevent Streamlit AttributeErrors
+if 'ren_val' not in st.session_state: st.session_state['ren_val'] = 0
+if 'ev_val' not in st.session_state: st.session_state['ev_val'] = 0
+if 'tax_val' not in st.session_state: st.session_state['tax_val'] = 0
+if 'chat_history' not in st.session_state: st.session_state['chat_history'] = []
 
 # --- CONFIGURE AI ---
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
@@ -50,6 +51,7 @@ if ml_model is not None and full_data is not None:
     # --- SIDEBAR: POLICY SCENARIOS ---
     st.sidebar.header("🎛️ Policy Scenarios (Model Inputs)")
     
+    # Tied safely to session_state using keys
     renewable_intensity = st.sidebar.slider("Renewable Expansion (Reduce Fossil Fuel %)", 0, 50, key='ren_val', step=5)
     ev_intensity = st.sidebar.slider("EV Transition (Reduce Oil CO₂ %)", 0, 50, key='ev_val', step=5)
     carbon_tax_intensity = st.sidebar.slider("Carbon Tax (Improve Energy/GDP %)", 0, 20, key='tax_val', step=2)
@@ -122,20 +124,22 @@ if ml_model is not None and full_data is not None:
         fig.update_layout(xaxis_title="Year", yaxis_title="CO₂ Emissions (Mt)", height=450, hovermode="x unified", xaxis=dict(type='category'))
         st.plotly_chart(fig, use_container_width=True)
 
+        # STEP 10: Present assumptions honestly as scenario simulations, not causal proof
+        st.info("ℹ️ **Methodology Note:** These projections represent *scenario simulations* where input variables (e.g., oil CO₂) are adjusted prior to prediction. They do not constitute absolute causal proof, but illustrate expected trends based on historical ML patterns.")
+
     with tab2:
         st.subheader("Interactive AI Assistant")
-        st.caption("Ask questions or propose policies. If the AI detects a policy, it will automatically update the dashboard sliders!")
+        st.caption("Chat normally, or propose a policy! The AI acts ONLY as a classifier and will automatically adjust the dashboard sliders.")
         
         # Display chat history
-        for msg in st.session_state.chat_history:
+        for msg in st.session_state['chat_history']:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
         
         # Chat Input Box
         if user_input := st.chat_input("Ask a question, or say: 'Let's impose a high carbon tax.'"):
             
-            # Show user message immediately
-            st.session_state.chat_history.append({"role": "user", "content": user_input})
+            st.session_state['chat_history'].append({"role": "user", "content": user_input})
             with st.chat_message("user"):
                 st.markdown(user_input)
                 
@@ -143,61 +147,64 @@ if ml_model is not None and full_data is not None:
                 if not API_KEY:
                     st.error("API Key missing.")
                 else:
-                    # The "Dual Brain" Prompt
+                    # The Unbreakable Prompt
                     prompt = f"""
-                    You are a helpful climate policy AI. 
-                    The user just said: "{user_input}"
+                    You are a helpful climate policy AI. You do NOT make up mathematical predictions. 
+                    The user said: "{user_input}"
                     
-                    Task 1: Respond to them conversationally. Answer their question nicely, no matter how simple or unrelated it is.
-                    Task 2: IF they proposed a climate policy, classify it into: "Renewable energy", "EV transition", or "Carbon tax". If they didn't, classify it as "none".
-                    Task 3: IF they proposed a policy, determine intensity: "low", "medium", or "high". If they didn't, output "none".
+                    Task 1: If it's a general question or greeting (e.g., "Hello", "What is 2+2?", "Why is the sky blue?"), answer it conversationally.
+                    Task 2: If they propose a policy, explain the policy and state that you are updating the dashboard parameters for the XGBoost model to predict the results. 
+                    Task 3: Classify the policy into: "renewable", "ev", or "tax". If it's not a policy, output "none".
+                    Task 4: Determine intensity: "low", "medium", or "high". If not a policy, output "none".
                     
-                    You MUST output ONLY a valid JSON object exactly like this format. Do NOT add any extra text outside the JSON block.
+                    Output ONLY valid JSON in this exact format, with NO extra text outside the brackets:
                     {{
                       "message": "Your conversational response here...",
-                      "scenario": "none or the scenario",
-                      "intensity": "none or the intensity"
+                      "scenario": "none/renewable/ev/tax",
+                      "intensity": "none/low/medium/high"
                     }}
                     """
                     
                     try:
-                        # Call the AI
                         response = model_ai.generate_content(prompt)
                         
-                        # Clean and parse the dual-brain JSON
-                        clean_json = response.text.replace("```json","").replace("```","").strip()
-                        parsed_data = json.loads(clean_json)
+                        # BULLETPROOF JSON EXTRACTION: Uses Regex to find the JSON block even if the AI messes up
+                        text_response = response.text
+                        json_match = re.search(r'\{.*\}', text_response, re.DOTALL)
                         
-                        ai_message = parsed_data.get("message", "I am not sure how to respond to that!")
+                        if json_match:
+                            parsed_data = json.loads(json_match.group(0))
+                        else:
+                            # Fallback if no JSON is found
+                            parsed_data = {"message": text_response, "scenario": "none", "intensity": "none"}
+                        
+                        ai_message = parsed_data.get("message", "I couldn't process that. Could you rephrase?")
                         scenario = parsed_data.get("scenario", "none").lower()
                         intensity = parsed_data.get("intensity", "none").lower()
                         
-                        # 1. Print the conversational answer to the screen
+                        # 1. Print the conversational answer
                         st.markdown(ai_message)
-                        st.session_state.chat_history.append({"role": "assistant", "content": ai_message})
+                        st.session_state['chat_history'].append({"role": "assistant", "content": ai_message})
                         
                         # 2. If a policy was detected, move the sliders silently
-                        if scenario != "none":
+                        if scenario != "none" and scenario != "null":
                             val_50_scale = 10 if intensity == "low" else 25 if intensity == "medium" else 50
                             val_20_scale = 5 if intensity == "low" else 10 if intensity == "medium" else 20
                             
-                            st.session_state.ren_val = 0
-                            st.session_state.ev_val = 0
-                            st.session_state.tax_val = 0
+                            # Safely updating session states
+                            st.session_state['ren_val'] = 0
+                            st.session_state['ev_val'] = 0
+                            st.session_state['tax_val'] = 0
                             
                             if "ev" in scenario or "petrol" in scenario:
-                                st.session_state.ev_val = val_50_scale
+                                st.session_state['ev_val'] = val_50_scale
                             if "renewable" in scenario or "solar" in scenario:
-                                st.session_state.ren_val = val_50_scale
+                                st.session_state['ren_val'] = val_50_scale
                             if "tax" in scenario or "carbon" in scenario:
-                                st.session_state.tax_val = val_20_scale
+                                st.session_state['tax_val'] = val_20_scale
                             
-                            # Tell the user we adjusted the dashboard
                             st.info("🔄 Dashboard sliders automatically updated based on your policy proposal!")
-                            
-                            # Refresh to instantly show the new chart
                             st.rerun()
 
                     except Exception as e:
-                        # Safe fallback if the AI bugs out
-                        st.error("I'm sorry, I couldn't process that right now. Try rephrasing!")
+                        st.error(f"Error parsing AI response: {e}")
