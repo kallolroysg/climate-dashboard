@@ -293,4 +293,4 @@ with col_ai_panel:
                             st.rerun()
                             
                     except Exception as fatal_error:
-                        st.error(f"Fallback routine initiated. Interface reset required.
+                        st.error(f"Fallback routine initiated. Interface reset required. (Logs: {fatal_error})")
