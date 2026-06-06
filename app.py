@@ -10,7 +10,6 @@ import re
 st.set_page_config(page_title="SG Climate ML Simulator v2", page_icon="🇸🇬", layout="wide")
 
 # --- INITIALIZE SESSION STATE ---
-# FIX: Direct Initialization of Streamlit Widget Keys
 if 'slider_ren' not in st.session_state:
     st.session_state['slider_ren'] = 0
 if 'slider_ev' not in st.session_state:
@@ -20,6 +19,16 @@ if 'slider_tax' not in st.session_state:
 if 'chat_history' not in st.session_state:
     st.session_state['chat_history'] = []
 
+# --- BUG FIX: Apply AI updates BEFORE widgets render ---
+if 'ai_updates' in st.session_state:
+    if 'ren' in st.session_state.ai_updates:
+        st.session_state['slider_ren'] = st.session_state.ai_updates['ren']
+    if 'ev' in st.session_state.ai_updates:
+        st.session_state['slider_ev'] = st.session_state.ai_updates['ev']
+    if 'tax' in st.session_state.ai_updates:
+        st.session_state['slider_tax'] = st.session_state.ai_updates['tax']
+    del st.session_state['ai_updates']
+
 st.title("🇸🇬 Singapore CO₂ Machine Learning Simulator")
 st.markdown("### Refactored Architecture: Mathematically Bound Downstream Engine")
 
@@ -27,7 +36,6 @@ st.markdown("### Refactored Architecture: Mathematically Bound Downstream Engine
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if API_KEY:
     genai.configure(api_key=API_KEY)
-    # Using the standard flash model name
     model_ai = genai.GenerativeModel('gemini-3.5-flash')
 else:
     st.warning("⚠️ AI API Key not found in Streamlit Secrets. Chatbot operational interface disabled.")
@@ -57,7 +65,6 @@ latest_rec = hist_df.iloc[-1]
 # --- SIDEBAR CONTROL PANEL ---
 st.sidebar.header("🎛️ Policy Controls")
 
-# FIX: Removed the conflicting 'value=' argument. Streamlit now reads directly from the Session State 'key'
 renewable_intensity = st.sidebar.slider(
     "Renewable Expansion (Reduce Gas CO₂ %)", 
     0, 50, step=5, key="slider_ren"
@@ -162,13 +169,13 @@ with col_graph:
     f_upper = list(base_forecast_df['co2_upper'])
     f_lower = list(base_forecast_df['co2_lower'])
     
-    # FIX: Ensure width=0 is used instead of 'transparent' to satisfy Plotly Validation
+    # FIX: Using rgba(...,0) completely sidesteps Plotly's strict validation checks.
     fig.add_trace(go.Scatter(
         x=f_years + f_years[::-1],
         y=f_upper + f_lower[::-1],
         fill='toself',
         fillcolor='rgba(128,128,128,0.15)',
-        line=dict(width=0), 
+        line=dict(color='rgba(255,255,255,0)'), 
         name='95% Predictive Confidence Range',
         showlegend=True
     ))
@@ -209,7 +216,6 @@ with col_ai_panel:
                 if not API_KEY:
                     st.error("API configuration block is unavailable.")
                 else:
-                    # FIX: Enforce Strict JSON output so Streamlit can read the intent
                     system_prompt = f"""
                     You are an elite, objective climate policy advisor.
                     The user proposed: "{user_query}"
@@ -245,21 +251,24 @@ with col_ai_panel:
                             fixed_50_scale = 15 if scale_label == "low" else 25 if scale_label == "medium" else 50
                             fixed_20_scale = 4 if scale_label == "low" else 10 if scale_label == "medium" else 20
                             
-                            # FIX: Modify Streamlit widget keys directly to force the UI to refresh
+                            # FIX: Queue updates for the next Streamlit run instead of forcing them mid-render
+                            new_updates = {}
                             if "ev" in intent_label:
-                                st.session_state['slider_ren'] = 0
-                                st.session_state['slider_tax'] = 0
-                                st.session_state['slider_ev'] = fixed_50_scale
+                                new_updates['ren'] = 0
+                                new_updates['tax'] = 0
+                                new_updates['ev'] = fixed_50_scale
                             elif "renewable" in intent_label or "solar" in intent_label:
-                                st.session_state['slider_ev'] = 0
-                                st.session_state['slider_tax'] = 0
-                                st.session_state['slider_ren'] = fixed_50_scale
+                                new_updates['ev'] = 0
+                                new_updates['tax'] = 0
+                                new_updates['ren'] = fixed_50_scale
                             elif "tax" in intent_label or "carbon" in intent_label:
-                                st.session_state['slider_ev'] = 0
-                                st.session_state['slider_ren'] = 0
-                                st.session_state['slider_tax'] = fixed_20_scale
+                                new_updates['ev'] = 0
+                                new_updates['ren'] = 0
+                                new_updates['tax'] = fixed_20_scale
                                 
-                            st.rerun()
+                            if new_updates:
+                                st.session_state.ai_updates = new_updates
+                                st.rerun()
                             
                     except Exception as fatal_error:
                         st.error(f"Fallback routine initiated. Interface reset required. (Logs: {fatal_error})")
