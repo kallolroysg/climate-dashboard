@@ -189,12 +189,13 @@ with col_graph:
     f_upper = list(base_forecast_df['co2_upper'])
     f_lower = list(base_forecast_df['co2_lower'])
     
+    # --- BUG FIX: Removed line=dict(color='transparent') and replaced with line=dict(width=0) ---
     fig.add_trace(go.Scatter(
         x=f_years + f_years[::-1],
         y=f_upper + f_lower[::-1],
         fill='toself',
         fillcolor='rgba(128,128,128,0.15)',
-        line=dict(color='transparent'),
+        line=dict(width=0), 
         name='95% Predictive Confidence Range',
         showlegend=True
     ))
@@ -292,4 +293,4 @@ with col_ai_panel:
                             st.rerun()
                             
                     except Exception as fatal_error:
-                        st.error(f"Fallback routine initiated. Interface reset required. (Logs: {fatal_error})")
+                        st.error(f"Fallback routine initiated. Interface reset required.
