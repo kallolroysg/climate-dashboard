@@ -36,6 +36,7 @@ st.markdown("### Refactored Architecture: Mathematically Bound Downstream Engine
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if API_KEY:
     genai.configure(api_key=API_KEY)
+    # Using the correct model string for your environment
     model_ai = genai.GenerativeModel('gemini-3.5-flash')
 else:
     st.warning("⚠️ AI API Key not found in Streamlit Secrets. Chatbot operational interface disabled.")
@@ -169,7 +170,7 @@ with col_graph:
     f_upper = list(base_forecast_df['co2_upper'])
     f_lower = list(base_forecast_df['co2_lower'])
     
-    # FIX: Using rgba(...,0) completely sidesteps Plotly's strict validation checks.
+    # FIX: Using rgba(...,0) bypasses Plotly's validation checks for confidence intervals.
     fig.add_trace(go.Scatter(
         x=f_years + f_years[::-1],
         y=f_upper + f_lower[::-1],
@@ -216,18 +217,20 @@ with col_ai_panel:
                 if not API_KEY:
                     st.error("API configuration block is unavailable.")
                 else:
+                    # FIX: Enforce Strict 3-part layout in JSON output
                     system_prompt = f"""
                     You are an elite, objective climate policy advisor.
                     The user proposed: "{user_query}"
                     
                     You MUST return ONLY a valid JSON structure. Do NOT wrap it in markdown block quotes. Just the raw JSON.
                     {{
-                      "message": "Your professional review commentary here. Discuss feasibility and practical steps...",
+                      "message": "Introductory assessment.\\n\\n**Local Implementation:**\\n* Point 1 (Singapore context)\\n* Point 2\\n\\n**Overseas Examples:**\\n* City A...\\n* City B...",
                       "scenario": "ev", 
                       "intensity": "high"
                     }}
                     
                     Rules for keys:
+                    - 'message' MUST follow a strict 3-part structure: 1) Brief intro, 2) '**Local Implementation:**' tailored to Singapore (e.g., LTA, ERP 2.0, HDBs), and 3) '**Overseas Examples:**' citing global cities. Use Markdown for formatting.
                     - 'scenario' MUST be one of: "ev", "renewable", "tax".
                     - 'intensity' MUST be one of: "low", "medium", "high".
                     """
@@ -251,7 +254,7 @@ with col_ai_panel:
                             fixed_50_scale = 15 if scale_label == "low" else 25 if scale_label == "medium" else 50
                             fixed_20_scale = 4 if scale_label == "low" else 10 if scale_label == "medium" else 20
                             
-                            # FIX: Queue updates for the next Streamlit run instead of forcing them mid-render
+                            # Queue updates for the next Streamlit run
                             new_updates = {}
                             if "ev" in intent_label:
                                 new_updates['ren'] = 0
