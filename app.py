@@ -28,7 +28,7 @@ API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if API_KEY:
     genai.configure(api_key=API_KEY)
     # Using the standard flash model name
-    model_ai = genai.GenerativeModel('gemini-1.5-flash')
+    model_ai = genai.GenerativeModel('gemini-3.5-flash')
 else:
     st.warning("⚠️ AI API Key not found in Streamlit Secrets. Chatbot operational interface disabled.")
 
