@@ -1,8 +1,9 @@
 streamlit
 pandas
+numpy
 plotly
 google-generativeai
-scikit-learn
+scikit-learn==1.6.1
 xgboost
 joblib
 openpyxl

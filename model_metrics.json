@@ -1,0 +1,57 @@
+{
+  "approach": "Predict yearly change (diff), one-step-ahead reconstruction to absolute level",
+  "base_features": [
+    "population",
+    "gdp",
+    "primary_energy_consumption",
+    "energy_per_gdp",
+    "energy_per_capita"
+  ],
+  "model_input_features": [
+    "year",
+    "d_population",
+    "d_gdp",
+    "d_primary_energy_consumption",
+    "d_energy_per_gdp",
+    "d_energy_per_capita"
+  ],
+  "target": "co2",
+  "excluded_for_leakage": [
+    "coal_co2",
+    "oil_co2",
+    "gas_co2",
+    "fossil_fuel_co2"
+  ],
+  "train_period": [
+    1966,
+    2016
+  ],
+  "test_period": [
+    2017,
+    2024
+  ],
+  "benchmark": {
+    "model": "LinearRegression",
+    "metrics": {
+      "MAE": 1.8188743361770685,
+      "RMSE": 2.9757418593967,
+      "R2": -1.390531419063322
+    }
+  },
+  "advanced": {
+    "model": "XGBoost",
+    "best_params": {
+      "learning_rate": 0.03,
+      "max_depth": 3,
+      "n_estimators": 100,
+      "subsample": 0.8
+    },
+    "metrics": {
+      "MAE": 1.4040416375100593,
+      "RMSE": 1.5174600281186648,
+      "R2": 0.37836069288763285
+    }
+  },
+  "selected_model": "XGBoost",
+  "residual_std": 1.4303721732192751
+}
