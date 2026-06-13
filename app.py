@@ -56,7 +56,7 @@ LATEST_YEAR = int(latest_rec["year"])
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if API_KEY:
     genai.configure(api_key=API_KEY)
-    model_ai = genai.GenerativeModel('gemini-2.5-flash')
+    model_ai = genai.GenerativeModel('gemini-3.5-flash')
 else:
     st.warning("⚠️ AI API Key not found in Streamlit Secrets. Chatbot operational interface disabled.")
 
