@@ -24,7 +24,7 @@ if 'ai_updates' in st.session_state:
             st.session_state[f'slider_{key}'] = st.session_state.ai_updates[key]
     del st.session_state['ai_updates']
 
-st.title("🇸🇬 Singapore CO₂ Machine Learning Simulator")
+st.title("Singapore CO₂ Machine Learning Simulator: AI Powered Climate Policy Forecasting")
 st.markdown("### Model-Driven Forecast: XGBoost vs Linear Benchmark")
 
 # --- LOAD DATA, MODEL, METRICS (real artifacts) ---
